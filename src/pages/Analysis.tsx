@@ -37,6 +37,7 @@ export default function Analysis() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
+  const [groupByMaterial, setGroupByMaterial] = useState(true)
 
   useEffect(() => {
     async function load() {
@@ -81,6 +82,56 @@ export default function Analysis() {
       return true
     })
   }, [result, filters])
+
+  /** Grouped or ungrouped list of materials for the table */
+  const displayMaterials = useMemo((): AnalyzedMaterial[] => {
+    if (!groupByMaterial) return filteredMaterials
+
+    const groups = new Map<string, AnalyzedMaterial[]>()
+    for (const mat of filteredMaterials) {
+      const key = `${mat.articleNo}|${mat.variant}`
+      const arr = groups.get(key) ?? []
+      arr.push(mat)
+      groups.set(key, arr)
+    }
+
+    return [...groups.values()].map((group) => {
+      if (group.length === 1) return group[0]
+
+      const first = group[0]
+      const totalQty = group.reduce((s, m) => s + m.quantity, 0)
+      const totalValue = group.reduce((s, m) => s + m.valuatedAmount, 0)
+      const totalSheets = group.reduce((s, m) => s + m.totalSheets, 0)
+      const maxAge = Math.max(...group.map((m) => m.stockAge))
+      const hasMatches = first.matches.length > 0
+
+      const updatedMatches = first.matches.map((m) => ({
+        ...m,
+        kgUtilizable: totalQty,
+        unitsProducible: m.lanes > 0 ? Math.floor(totalSheets * m.lanes) : 0,
+        lossAmountCLP: (m.lossPct / 100) * totalValue,
+      }))
+
+      const lossPcts = updatedMatches.map((m) => m.lossPct)
+
+      return {
+        ...first,
+        stockAge: maxAge,
+        quantity: totalQty,
+        valuatedAmount: totalValue,
+        batchNo: `${group.length} lotes`,
+        totalSheets,
+        matches: updatedMatches,
+        kgUtilizable: hasMatches ? totalQty : 0,
+        lossAmountCLP: hasMatches
+          ? updatedMatches.reduce((s, m) => s + m.lossAmountCLP, 0) / updatedMatches.length
+          : 0,
+        minLossPct: lossPcts.length > 0 ? Math.min(...lossPcts) : 0,
+        avgLossPct: lossPcts.length > 0 ? lossPcts.reduce((s, v) => s + v, 0) / lossPcts.length : 0,
+        maxLossPct: lossPcts.length > 0 ? Math.max(...lossPcts) : 0,
+      }
+    })
+  }, [filteredMaterials, groupByMaterial])
 
   /** KPIs recalculated for the currently selected article group */
   const filteredKpis = useMemo(() => {
@@ -190,18 +241,37 @@ export default function Analysis() {
 
             {/* Filters */}
             <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
-              <FilterBar
-                filters={filters}
-                articleGroups={articleGroups}
-                onChange={setFilters}
-              />
+              <div className="flex flex-wrap gap-3 items-center">
+                <FilterBar
+                  filters={filters}
+                  articleGroups={articleGroups}
+                  onChange={setFilters}
+                />
+                <button
+                  onClick={() => setGroupByMaterial((v) => !v)}
+                  className={`
+                    text-sm rounded-lg px-4 py-2 border transition-colors font-medium
+                    ${groupByMaterial
+                      ? 'bg-blue-600 border-blue-500 text-white dark:bg-blue-700 dark:border-blue-600'
+                      : 'bg-white border-slate-300 text-slate-600 hover:border-slate-400 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400 dark:hover:text-white dark:hover:border-slate-500'
+                    }
+                  `}
+                >
+                  Agrupar por material
+                </button>
+              </div>
               <p className="text-slate-400 dark:text-slate-500 text-sm">
-                {filteredMaterials.length} de {result.materials.length} materiales
+                {displayMaterials.length} de {result.materials.length} materiales
+                {groupByMaterial && displayMaterials.length !== filteredMaterials.length && (
+                  <span className="ml-1 text-slate-300 dark:text-slate-600">
+                    ({filteredMaterials.length} lotes)
+                  </span>
+                )}
               </p>
             </div>
 
             {/* Table */}
-            <MaterialTable materials={filteredMaterials} />
+            <MaterialTable materials={displayMaterials} />
           </>
         )}
       </div>

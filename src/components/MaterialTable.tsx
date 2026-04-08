@@ -9,7 +9,7 @@ interface Props {
   materials: AnalyzedMaterial[]
 }
 
-const COL_COUNT = 11
+const COL_COUNT = 12
 
 export default function MaterialTable({ materials }: Props) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
@@ -44,6 +44,7 @@ export default function MaterialTable({ materials }: Props) {
             <th className="text-right px-4 py-3 font-medium">Cantidad</th>
             <th className="text-left px-4 py-3 font-medium">Unidad</th>
             <th className="text-right px-4 py-3 font-medium">N° FG</th>
+            <th className="text-right px-4 py-3 font-medium">Valor stock</th>
             <th className="text-right px-4 py-3 font-medium">Kilos util.</th>
             <th className="text-right px-4 py-3 font-medium">Pérdida (min→max)</th>
             <th className="text-right px-4 py-3 font-medium">Prom. pérd.</th>
@@ -87,6 +88,9 @@ export default function MaterialTable({ materials }: Props) {
                   </td>
                   <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{numFmt.format(mat.quantity)}</td>
                   <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{mat.stockUnit}</td>
+                  <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300 font-medium">
+                    {clpFmt.format(mat.valuatedAmount)}
+                  </td>
                   <td className="px-4 py-3 text-right">
                     {hasMatches ? (
                       <span className="bg-emerald-100 text-emerald-700 dark:bg-emerald-800/50 dark:text-emerald-300 text-xs px-2 py-1 rounded-full font-medium">

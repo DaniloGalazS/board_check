@@ -43,8 +43,8 @@ export default function MaterialTable({ materials }: Props) {
             <th className="text-right px-4 py-3 font-medium">Días stock</th>
             <th className="text-right px-4 py-3 font-medium">Cantidad</th>
             <th className="text-left px-4 py-3 font-medium">Unidad</th>
-            <th className="text-right px-4 py-3 font-medium">N° FG</th>
             <th className="text-right px-4 py-3 font-medium">Valor stock</th>
+            <th className="text-right px-4 py-3 font-medium">N° FG</th>
             <th className="text-right px-4 py-3 font-medium">Kilos util.</th>
             <th className="text-right px-4 py-3 font-medium">Pérdida (min→max)</th>
             <th className="text-right px-4 py-3 font-medium">Prom. pérd.</th>

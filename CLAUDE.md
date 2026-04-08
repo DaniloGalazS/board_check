@@ -31,12 +31,12 @@ src/
     Analysis.tsx      — Pantalla principal de análisis + KPIs
     Configuration.tsx — Configuración de días mínimos de aging
   components/
-    KpiCard.tsx         — Card de KPI con variantes de color
-    MaterialTable.tsx   — Tabla principal con filas expandibles
-    ExpandedProductRow  — Detalle de productos candidatos (fila expandida)
-    FilterBar.tsx       — Filtros: article group, article no., solo con alternativa
-    FileUploadZone.tsx  — Zona drag & drop por archivo
-    ThemeToggle.tsx     — Botón flotante ☀️/🌙 (esquina inferior derecha)
+    KpiCard.tsx            — Card de KPI con variantes de color (default/warning/success/danger)
+    MaterialTable.tsx      — Tabla principal con filas expandibles
+    ExpandedProductRow.tsx — Detalle de productos candidatos (fila expandida)
+    FilterBar.tsx          — Filtros: article group, article no., solo con alternativa
+    FileUploadZone.tsx     — Zona drag & drop por archivo
+    ThemeToggle.tsx        — Botón flotante ☀️/🌙 (esquina inferior derecha)
 files/
   BOINV.xlsx      — Stock de materiales (fuente de datos)
   PROD-STD.xlsx   — Producciones históricas
@@ -85,7 +85,24 @@ Columnas relevantes: `Article no.`, `Variant`, `496, Long-/Short Grain`
    - **Certificación**: si el producto exige PEFC/FSC, el stock debe tener exactamente esa cert; si el producto no tiene cert → cualquier material sirve
 6. Calcular pérdida: `lossPct = (stockArea - productArea) / stockArea * 100`
 7. Calcular unidades producibles: `floor(totalSheets × lanes)`
-8. Agregar stats por `articleGroup` para KPIs filtrados
+8. Agregar stats por `articleGroup` para KPIs filtrados (`groupStats`)
+
+### Tipos clave en `types.ts`
+
+**`MaterialMatch`** — un producto candidato para un material:
+- `fgArticleNo`, `fgVariant`, `fgDescription`, `kunde`, `lanes`
+- `consumedArticleNo`, `consumedVariant` — material consumido según PROD-STD (para verificación)
+- `unitsProducible` — `floor(totalSheets × lanes)`
+- `lossPct`, `kgUtilizable`, `lossAmountCLP`
+
+**`AnalyzedMaterial`** — un material aged del BOINV con sus candidatos:
+- `minLossPct`, `avgLossPct`, `maxLossPct` — rango y promedio de pérdida entre todos los candidatos
+- `totalSheets` — pliegos totales calculados desde kg+dims+gramaje
+- `batchNo` — número de lote (o `"N lotes"` cuando se agrupa)
+
+**`GroupStats`** — totales de stock por article group (incluyendo no-aged):
+- `totalStockAmount`, `obsoleteAmount`, `totalKg`, `obsoleteKg`
+- Guardado en `result.groupStats` con clave `articleGroup` o `"__all__"`
 
 ### Conversión kg → pliegos (SHT)
 ```
@@ -94,17 +111,30 @@ sheets = kg / (widthM × heightM × grammageKg_per_m2)
 El gramaje se extrae de la descripción del material con regex: `/\b(\d+)\s*g/i`
 
 ### Certificaciones
-Extraídas de la variant con: `/_( PEFC|FSC)(?:[_\s]|$)/i`
+Extraídas de la variant con: `/_(PEFC|FSC)(?:[_\s]|$)/i`
 - Stock PEFC + producto sin cert → ✓ compatible
 - Stock FSC + producto FSC → ✓ compatible
 - Stock PEFC + producto FSC → ✗ incompatible
 - Stock sin cert + producto PEFC o FSC → ✗ incompatible
 
-## KPIs y filtros
+## KPIs y filtros (`Analysis.tsx`)
 
-Los KPI cards se recalculan dinámicamente según el `articleGroup` seleccionado. Los totales de stock (incluyendo materiales no-aged) se guardan en `result.groupStats` indexados por grupo (y `"__all__"` para global).
+Los KPI cards se recalculan dinámicamente según el `articleGroup` seleccionado usando `filteredKpis` (useMemo). Los totales de stock (incluyendo materiales no-aged) vienen de `result.groupStats`.
 
 Formato numérico compacto (función `clpCompact`): ≥1MM → `$2.3MM`, ≥1k → `$567k`
+
+### Columnas de la tabla de materiales
+Article no. · Variante · Descripción · Días stock · Cantidad · Unidad · **Valor stock** · N° FG · Kilos util. · Pérdida (min→max) · Prom. pérd.
+
+### Agrupación por material (`groupByMaterial`, default: `true`)
+Activo por defecto. Agrupa filas con mismo `articleNo|variant` (distintos lotes/batches):
+- `stockAge` → máximo entre lotes
+- `quantity`, `valuatedAmount` → suma
+- `totalSheets` → suma (base para recalcular `unitsProducible`)
+- `matches` → del primer lote (mismas dims/cert/fibra), con `kgUtilizable` y `unitsProducible` recalculados con los totales
+- `batchNo` → `"N lotes"`
+
+El contador muestra `"X materiales (Y lotes)"` cuando hay diferencia.
 
 ## Tema claro/oscuro
 

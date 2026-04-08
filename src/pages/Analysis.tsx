@@ -1,0 +1,210 @@
+import { useEffect, useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
+import KpiCard from '../components/KpiCard'
+import FilterBar from '../components/FilterBar'
+import MaterialTable from '../components/MaterialTable'
+import { loadRows } from '../lib/storage'
+import { runAnalysis } from '../lib/analysisEngine'
+import { getConfig } from './Configuration'
+import type { AnalysisResult, AnalyzedMaterial } from '../lib/types'
+
+const numFmt = new Intl.NumberFormat('es-CL', { maximumFractionDigits: 1 })
+const pctFmt = (v: number) => `${numFmt.format(v)}%`
+
+/** Compact currency: $1.234MM / $567k / $890 */
+function clpCompact(value: number): string {
+  const abs = Math.abs(value)
+  if (abs >= 1_000_000) return `$${numFmt.format(value / 1_000_000)}MM`
+  if (abs >= 1_000)     return `$${numFmt.format(value / 1_000)}k`
+  return `$${numFmt.format(value)}`
+}
+
+interface Filters {
+  articleGroup: string
+  articleNo: string
+  onlyWithAlternative: boolean
+}
+
+const DEFAULT_FILTERS: Filters = {
+  articleGroup: 'BO-1',
+  articleNo: '',
+  onlyWithAlternative: false,
+}
+
+export default function Analysis() {
+  const navigate = useNavigate()
+  const [result, setResult] = useState<AnalysisResult | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const [boinv, prodstd, itempp] = await Promise.all([
+          loadRows('boinv'),
+          loadRows('prodstd'),
+          loadRows('itempp'),
+        ])
+
+        if (!boinv.length || !prodstd.length) {
+          setError('Faltan datos. Ve a Carga de Datos y sube los tres archivos antes de continuar.')
+          setLoading(false)
+          return
+        }
+
+        const config = getConfig()
+        const res = runAnalysis(boinv, prodstd, itempp, config)
+        setResult(res)
+      } catch (err) {
+        setError(`Error al procesar los datos: ${err instanceof Error ? err.message : 'Error desconocido'}`)
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [])
+
+  const articleGroups = useMemo(() => {
+    if (!result) return []
+    return [...new Set(result.materials.map((m) => m.articleGroup).filter(Boolean))].sort()
+  }, [result])
+
+  const filteredMaterials = useMemo((): AnalyzedMaterial[] => {
+    if (!result) return []
+    return result.materials.filter((m) => {
+      if (filters.articleGroup && m.articleGroup !== filters.articleGroup) return false
+      if (filters.articleNo && !m.articleNo.toLowerCase().includes(filters.articleNo.toLowerCase())) return false
+      if (filters.onlyWithAlternative && m.matches.length === 0) return false
+      return true
+    })
+  }, [result, filters])
+
+  /** KPIs recalculated for the currently selected article group */
+  const filteredKpis = useMemo(() => {
+    if (!result) return null
+    const groupKey = filters.articleGroup || '__all__'
+    const gs = result.groupStats[groupKey] ?? result.groupStats['__all__'] ?? { totalStockAmount: 0, obsoleteAmount: 0, totalKg: 0, obsoleteKg: 0 }
+
+    // Use filteredMaterials (group + articleNo + onlyWithAlternative filters applied)
+    const withMatch = filteredMaterials.filter((m) => m.matches.length > 0)
+    const kgPossible = withMatch.reduce((s, m) => s + m.quantity, 0)
+
+    return {
+      totalStockAmount: gs.totalStockAmount,
+      obsoleteAmount: gs.obsoleteAmount,
+      obsoletePct: gs.totalStockAmount > 0 ? (gs.obsoleteAmount / gs.totalStockAmount) * 100 : 0,
+      articlesWithAlternative: withMatch.length,
+      kgPossibleToUse: kgPossible,
+      kgPossiblePct: gs.obsoleteKg > 0 ? (kgPossible / gs.obsoleteKg) * 100 : 0,
+      totalLossAmount: withMatch.reduce((s, m) => s + m.lossAmountCLP, 0),
+    }
+  }, [result, filters.articleGroup, filteredMaterials])
+
+  return (
+    <div className="min-h-screen px-4 py-8">
+      <div className="max-w-screen-xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
+          <div>
+            <button
+              onClick={() => navigate('/')}
+              className="flex items-center gap-2 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white mb-2 transition-colors text-sm"
+            >
+              ← Volver al inicio
+            </button>
+            <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Análisis de Stock</h1>
+          </div>
+          <button
+            onClick={() => navigate('/upload')}
+            className="text-sm text-slate-500 hover:text-slate-900 border border-slate-300 hover:border-slate-400 dark:text-slate-400 dark:hover:text-white dark:border-slate-700 dark:hover:border-slate-500 px-4 py-2 rounded-lg transition-colors"
+          >
+            Actualizar datos
+          </button>
+        </div>
+
+        {/* States */}
+        {loading && (
+          <div className="flex items-center justify-center py-24 text-slate-400">
+            <div className="text-center">
+              <div className="text-4xl mb-4 animate-spin inline-block">⟳</div>
+              <p>Procesando datos…</p>
+            </div>
+          </div>
+        )}
+
+        {!loading && error && (
+          <div className="bg-red-50 border border-red-300 text-red-700 dark:bg-red-900/30 dark:border-red-700 dark:text-red-300 rounded-xl px-6 py-5">
+            <p className="font-semibold mb-1">Sin datos disponibles</p>
+            <p className="text-sm">{error}</p>
+            <button
+              onClick={() => navigate('/upload')}
+              className="mt-4 bg-red-600 hover:bg-red-500 dark:bg-red-700 dark:hover:bg-red-600 text-white text-sm px-4 py-2 rounded-lg transition-colors"
+            >
+              Ir a Carga de Datos
+            </button>
+          </div>
+        )}
+
+        {!loading && result && filteredKpis && (
+          <>
+            {/* KPI Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 mb-8">
+              <KpiCard
+                title="Monto total stock"
+                value={clpCompact(filteredKpis.totalStockAmount)}
+              />
+              <KpiCard
+                title="Monto obsoleto"
+                value={clpCompact(filteredKpis.obsoleteAmount)}
+                accent="warning"
+              />
+              <KpiCard
+                title="% Monto obsoleto"
+                value={pctFmt(filteredKpis.obsoletePct)}
+                accent="warning"
+              />
+              <KpiCard
+                title="Art. con alternativa"
+                value={String(filteredKpis.articlesWithAlternative)}
+                accent="success"
+              />
+              <KpiCard
+                title="Kilos posibles uso"
+                value={`${numFmt.format(filteredKpis.kgPossibleToUse)} kg`}
+                accent="success"
+              />
+              <KpiCard
+                title="% kilos posibles"
+                value={pctFmt(filteredKpis.kgPossiblePct)}
+                accent="success"
+              />
+              <KpiCard
+                title="Monto pérdida total"
+                value={clpCompact(filteredKpis.totalLossAmount)}
+                accent="danger"
+              />
+            </div>
+
+            {/* Filters */}
+            <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
+              <FilterBar
+                filters={filters}
+                articleGroups={articleGroups}
+                onChange={setFilters}
+              />
+              <p className="text-slate-400 dark:text-slate-500 text-sm">
+                {filteredMaterials.length} de {result.materials.length} materiales
+              </p>
+            </div>
+
+            {/* Table */}
+            <MaterialTable materials={filteredMaterials} />
+          </>
+        )}
+      </div>
+    </div>
+  )
+}

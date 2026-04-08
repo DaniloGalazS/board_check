@@ -1,0 +1,123 @@
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import FileUploadZone from '../components/FileUploadZone'
+import { parseBoinv, parseProdStd, parseItempp } from '../lib/excelParser'
+import { saveRows, saveMetadata, loadAllMetadata } from '../lib/storage'
+import type { StoredFileMetadata } from '../lib/types'
+
+const CHILE_TZ = 'America/Santiago'
+
+function formatDate(isoString: string): string {
+  return new Intl.DateTimeFormat('es-CL', {
+    timeZone: CHILE_TZ,
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(new Date(isoString))
+}
+
+type LoadingState = Record<string, boolean>
+
+export default function DataUpload() {
+  const navigate = useNavigate()
+  const [metadata, setMetadata] = useState<StoredFileMetadata[]>([])
+  const [loading, setLoading] = useState<LoadingState>({})
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    loadAllMetadata().then(setMetadata)
+  }, [])
+
+  function getMeta(fileType: string) {
+    return metadata.find((m) => m.fileType === fileType)
+  }
+
+  async function handleFile(
+    fileType: StoredFileMetadata['fileType'],
+    file: File,
+    parser: (f: File) => Promise<unknown[]>,
+    store: Parameters<typeof saveRows>[0]
+  ) {
+    setError(null)
+    setLoading((prev) => ({ ...prev, [fileType]: true }))
+    try {
+      const rows = await parser(file)
+      await saveRows(store, rows as never)
+      const meta: StoredFileMetadata = {
+        fileType,
+        uploadedAt: new Date().toISOString(),
+        rowCount: rows.length,
+      }
+      await saveMetadata(meta)
+      setMetadata((prev) => {
+        const filtered = prev.filter((m) => m.fileType !== fileType)
+        return [...filtered, meta]
+      })
+    } catch (err) {
+      setError(`Error al procesar ${file.name}: ${err instanceof Error ? err.message : 'Error desconocido'}`)
+    } finally {
+      setLoading((prev) => ({ ...prev, [fileType]: false }))
+    }
+  }
+
+  return (
+    <div className="min-h-screen px-4 py-10">
+      <div className="max-w-2xl mx-auto">
+        <button
+          onClick={() => navigate('/')}
+          className="flex items-center gap-2 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white mb-8 transition-colors"
+        >
+          ← Volver al inicio
+        </button>
+
+        <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">Carga de Datos</h1>
+        <p className="text-slate-500 dark:text-slate-400 mb-10">
+          Sube los tres archivos Excel. Los datos se guardan localmente hasta la próxima carga.
+        </p>
+
+        {error && (
+          <div className="mb-6 bg-red-50 border border-red-300 text-red-700 dark:bg-red-900/30 dark:border-red-700 dark:text-red-300 rounded-xl px-4 py-3 text-sm">
+            {error}
+          </div>
+        )}
+
+        <div className="flex flex-col gap-4">
+          <FileUploadZone
+            label="BOINV — Stock de materiales"
+            subtitle="Materiales en stock con aging y cantidades"
+            onFile={(f) => handleFile('boinv', f, parseBoinv, 'boinv')}
+            lastUpload={getMeta('boinv') ? formatDate(getMeta('boinv')!.uploadedAt) : undefined}
+            isLoading={!!loading['boinv']}
+            isLoaded={!!getMeta('boinv')}
+          />
+
+          <FileUploadZone
+            label="PROD-STD — Producciones históricas"
+            subtitle="Órdenes de producción con materiales consumidos"
+            onFile={(f) => handleFile('prodstd', f, parseProdStd, 'prodstd')}
+            lastUpload={getMeta('prodstd') ? formatDate(getMeta('prodstd')!.uploadedAt) : undefined}
+            isLoading={!!loading['prodstd']}
+            isLoaded={!!getMeta('prodstd')}
+          />
+
+          <FileUploadZone
+            label="ITEMPP — Master data de materiales"
+            subtitle="Dirección de fibra y datos maestros"
+            onFile={(f) => handleFile('itempp', f, parseItempp, 'itempp')}
+            lastUpload={getMeta('itempp') ? formatDate(getMeta('itempp')!.uploadedAt) : undefined}
+            isLoading={!!loading['itempp']}
+            isLoaded={!!getMeta('itempp')}
+          />
+        </div>
+
+        {metadata.length === 3 && (
+          <button
+            onClick={() => navigate('/analysis')}
+            className="mt-8 w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 rounded-xl transition-colors"
+          >
+            Ir al Análisis →
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}

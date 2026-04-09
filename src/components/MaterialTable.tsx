@@ -9,7 +9,7 @@ interface Props {
   materials: AnalyzedMaterial[]
 }
 
-const COL_COUNT = 12
+const COL_COUNT = 13
 
 export default function MaterialTable({ materials }: Props) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
@@ -43,6 +43,8 @@ export default function MaterialTable({ materials }: Props) {
             <th className="text-right px-4 py-3 font-medium">Días stock</th>
             <th className="text-right px-4 py-3 font-medium">Cantidad</th>
             <th className="text-left px-4 py-3 font-medium">Unidad</th>
+            <th className="text-right px-4 py-3 font-medium">Pliegos</th>
+            <th className="text-left px-4 py-3 font-medium">SHT</th>
             <th className="text-right px-4 py-3 font-medium">Valor stock</th>
             <th className="text-right px-4 py-3 font-medium">N° FG</th>
             <th className="text-right px-4 py-3 font-medium">Kilos util.</th>
@@ -88,6 +90,10 @@ export default function MaterialTable({ materials }: Props) {
                   </td>
                   <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{numFmt.format(mat.quantity)}</td>
                   <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{mat.stockUnit}</td>
+                  <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">
+                    {mat.totalSheets > 0 ? numFmt.format(mat.totalSheets) : <span className="text-slate-300 dark:text-slate-600">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 dark:text-slate-400">SHT</td>
                   <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300 font-medium">
                     {clpFmt.format(mat.valuatedAmount)}
                   </td>

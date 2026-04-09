@@ -91,7 +91,7 @@ export default function MaterialTable({ materials }: Props) {
                   <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{numFmt.format(mat.quantity)}</td>
                   <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{mat.stockUnit}</td>
                   <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">
-                    {mat.totalSheets > 0 ? numFmt.format(mat.totalSheets) : <span className="text-slate-300 dark:text-slate-600">—</span>}
+                    {mat.totalSheets > 0 ? Math.ceil(mat.totalSheets).toLocaleString('es-CL') : <span className="text-slate-300 dark:text-slate-600">—</span>}
                   </td>
                   <td className="px-4 py-3 text-slate-500 dark:text-slate-400">SHT</td>
                   <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300 font-medium">

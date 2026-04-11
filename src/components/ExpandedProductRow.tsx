@@ -36,6 +36,8 @@ export default function ExpandedProductRow({ matches, colSpan }: Props) {
                 <th className="text-left pb-2 pr-4 font-medium">Descripción</th>
                 <th className="text-left pb-2 pr-4 font-medium">Cliente</th>
                 <th className="text-left pb-2 pr-4 font-medium">Cartulina utilizada</th>
+                <th className="text-left pb-2 pr-4 font-medium">Pliego estándar</th>
+                <th className="text-right pb-2 pr-4 font-medium">Uds./pliego estd.</th>
                 <th className="text-right pb-2 pr-4 font-medium">Uds. posibles</th>
                 <th className="text-right pb-2 pr-4 font-medium">Kilos util.</th>
                 <th className="text-right pb-2 pr-4 font-medium">% Pérdida</th>
@@ -54,6 +56,16 @@ export default function ExpandedProductRow({ matches, colSpan }: Props) {
                   <td className="py-2 pr-4">
                     <span className="text-slate-800 dark:text-slate-300 font-medium">{m.consumedArticleNo}</span>
                     <span className="text-slate-400 dark:text-slate-500 ml-1">/ {m.proposedSheetDims ?? m.consumedVariant}</span>
+                  </td>
+                  <td className="py-2 pr-4 text-slate-500 dark:text-slate-400">
+                    {m.source === 'masterdata'
+                      ? m.consumedVariant
+                      : <span className="text-slate-300 dark:text-slate-600">—</span>}
+                  </td>
+                  <td className="py-2 pr-4 text-right text-slate-500 dark:text-slate-400">
+                    {m.source === 'masterdata'
+                      ? m.lanes
+                      : <span className="text-slate-300 dark:text-slate-600">—</span>}
                   </td>
                   <td className="py-2 pr-4 text-right text-slate-900 dark:text-slate-200 font-medium">
                     {numFmt.format(m.unitsProducible)}

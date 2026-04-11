@@ -25,7 +25,7 @@ Forma parte de una aplicación mayor llamada **Forecast Hub**.
 src/
   lib/
     types.ts          — Todas las interfaces TypeScript
-    excelParser.ts    — Parseo de los 3 archivos Excel
+    excelParser.ts    — Parseo de los 6 archivos Excel (3 Lógica 1 + 3 Lógica 2)
     analysisEngine.ts — Lógica central del cruce de datos
     storage.ts        — Lectura/escritura en IndexedDB
     useTheme.ts       — Hook de tema claro/oscuro (localStorage + clase html)
@@ -95,9 +95,10 @@ Columnas relevantes: `Article no.`, `Variant`, `496, Long-/Short Grain`
 
 **`MaterialMatch`** — un producto candidato para un material:
 - `fgArticleNo`, `fgVariant`, `fgDescription`, `kunde`, `lanes`
-- `consumedArticleNo`, `consumedVariant` — material consumido según PROD-STD (para verificación)
-- `unitsProducible` — `floor(totalSheets × lanes)`
+- `consumedArticleNo`, `consumedVariant` — material consumido según PROD-STD o BOM estándar
+- `unitsProducible` — `floor(totalSheets × (lanesProposed ?? lanes))`
 - `lossPct`, `kgUtilizable`, `lossAmountCLP`
+- `source: 'historial' | 'masterdata'`, `lanesProposed?`, `method?`, `proposedSheetDims?` — solo Lógica 2
 
 **`AnalyzedMaterial`** — un material aged del BOINV con sus candidatos:
 - `minLossPct`, `avgLossPct`, `maxLossPct` — rango y promedio de pérdida entre todos los candidatos
@@ -158,30 +159,40 @@ npm run preview  # preview del build
 npx tsc --noEmit # verificar tipos sin compilar
 ```
 
-## Lógica 2 — Análisis por Master Data (en diseño)
+## Lógica 2 — Análisis por Master Data (implementado)
 
-Especificación completa en `logica2_master_data.md`. Resumen para contexto:
+Lógica 1 busca candidatos en **historial de producción** (PROD-STD). Lógica 2 busca candidatos en la **base completa de productos activos** aunque no haya historial de consumo, proponiendo reducir unidades al pliego si el pliego estándar no cabe en el material inmovilizado.
 
-Lógica 1 (ya implementada) busca candidatos en **historial de producción** (PROD-STD). Lógica 2 busca candidatos en la **base completa de productos activos** aunque no haya historial de consumo — proponiendo reducir unidades al pliego si el pliego estándar no cabe en el material inmovilizado.
-
-### Nuevos archivos de entrada (no implementados aún)
-- **ITEM-STD** — Master data de productos: dimensiones de troquel, unidades/pliego por formato
-- **BOM** — Relación FG ↔ material consumido (join key con BOINV y con Design Waste)
-- **Design Waste** — Merma de diseño por producto (join por `Bom Id`)
+### Archivos de entrada adicionales (opcionales)
+- **ITEM-STD** — Master data de productos: dimensiones de troquel (`dieWidth`, `dieHeight`), unidades/pliego por formato (`lanesFormat3`, `lanesFormat6`)
+- **BOM** — Relación FG ↔ material cartulina: `matArticleNo`, `matVariant` (dims pliego estándar), `matArticleGroup`, `matDescription` (gramaje), `bomId`
+- **Design Waste** — Merma de diseño por BOM: `bomId` → `cadWastePct` (decimal, ej. 0.185)
 
 ### Flujo de cálculo Lógica 2
-1. Join ITEM-STD × BOM × Design Waste → registro completo por producto
-2. Filtro elegibilidad: mismo `articleNo` de cartulina, dirección de fibra coincidente, troquel entra en el stock
-3. **Inferir grilla** (cols × rows) desde dimensiones troquel + pliego estándar + `lanes`
-4. Si `diff_grilla ≤ UMBRAL_GRILLA_MM` (default 30mm config): modelo de grilla — iterar reducciones cols×rows
-5. Si `diff > umbral`: modelo proporcional — reducir N desde `lanes-1` hasta que el pliego quepa
-6. Calcular pérdida y unidades producibles igual que Lógica 1
-7. **Deduplicar**: si un producto ya aparece en Lógica 1, priorizar ese resultado; exclusivos de Lógica 2 reciben badge `Master Data`
+1. Join ITEM-STD × BOM × Design Waste → `Logic2Record` por fila BOM, indexado por `matArticleNo`
+2. Por cada material aged: buscar registros donde `matArticleNo == stock.articleNo` y `matArticleGroup == stock.articleGroup`
+3. Elegibilidad:
+   - **Certificación**: misma regla que Lógica 1
+   - **Dirección de fibra con orientación**: corte normal → `stockGrain == matGrain`; corte rotado → `stockGrain != matGrain` (rotar 90° el pliego invierte la dirección efectiva de fibra)
+   - **Troquel entra en el stock** (normal o rotado)
+4. **Inferir grilla** (cols × rows) desde dims troquel + pliego estándar + `lanes`, respetando solo las orientaciones válidas por fibra
+5. Si `diff_grilla ≤ gridThresholdMm` (default 30mm, configurable): **modelo grilla** — iterar reducciones cols×rows
+6. Si `diff > umbral`: **modelo proporcional** — reducir N desde `lanes-1` hasta que el pliego propuesto quepa
+7. `unitsProducible = floor(totalSheets × lanesProposed)` — igual que Lógica 1; no hay que multiplicar por `usableRatio`
+8. `kgUtilizable = mat.quantity` (todo el kg entra al proceso; la pérdida es merma de área, no kg eliminados)
+9. `proposedSheetDims` = dims del pliego propuesto en la orientación real de colocación sobre el stock (swapeadas si rotado)
+10. **Deduplicar**: si FG ya aparece en Lógica 1, se omite en Lógica 2
 
-### Impacto en UI
-- DataUpload: 2 grupos visuales (3 archivos Lógica 1 + 3 archivos Lógica 2)
-- Analysis: nuevo KPI "Productos propuestos sin historial"; columnas nuevas en fila expandida: `Unidades/pliego propuestas`, `Fuente` (badge Historial/Master Data), `Método` (badge Grilla/Proporcional)
-- Configuration: nuevo campo `Umbral de confianza de grilla (mm)`
+### Campos adicionales en `MaterialMatch` (Lógica 2)
+- `source: 'masterdata'` — badge amarillo "Master Data"
+- `lanesProposed` — unidades/pliego propuestas (puede ser < `lanes`)
+- `method: 'grilla' | 'proporcional'`
+- `proposedSheetDims` — dims del pliego propuesto como cadena `"WxH"` (en orientación de colocación)
+
+### UI
+- DataUpload: 2 grupos visuales (3 archivos Lógica 1 requeridos + 3 archivos Lógica 2 opcionales)
+- Analysis: KPI "FG sin historial" (visible solo si hay resultados exclusivos de Lógica 2); fila expandida muestra `Fuente` (badge Historial/Master Data) y `Método` (badge Grilla/Proporcional)
+- Configuration: campo `Umbral de confianza de grilla (mm)` (default 30)
 
 ---
 

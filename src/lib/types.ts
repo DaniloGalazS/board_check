@@ -78,6 +78,7 @@ export interface MaterialMatch {
   source: 'historial' | 'masterdata';
   lanesProposed?: number;      // Lógica 2: units/sheet resultantes (puede ser < lanes)
   method?: 'grilla' | 'proporcional'; // Lógica 2: método de cálculo
+  proposedSheetDims?: string;  // Lógica 2: dimensiones del pliego propuesto "WxH"
 }
 
 export interface AnalyzedMaterial {

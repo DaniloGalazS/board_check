@@ -91,6 +91,15 @@ function grainsCompatible(a: string | null, b: string | null): boolean {
   return normalizeGrain(a) === normalizeGrain(b)
 }
 
+/**
+ * When a sheet is rotated 90°, its fiber direction flips relative to the die.
+ * Rotation is grain-safe only when stock and BOM material have OPPOSITE grain directions.
+ */
+function grainsCompatibleRotated(a: string | null, b: string | null): boolean {
+  if (!a || !b) return true // benefit of the doubt if data missing
+  return normalizeGrain(a) !== normalizeGrain(b)
+}
+
 // ─── Dimension compatibility ──────────────────────────────────────────────────
 
 /** Returns true if productDims fits within stockDims (both axes) */
@@ -144,7 +153,9 @@ function inferBestGrid(
   dieH: number,
   shtW: number,
   shtH: number,
-  thresholdMm: number
+  thresholdMm: number,
+  allowNormal = true,
+  allowRotated = true,
 ): GridBest | null {
   if (lanes <= 0 || dieW <= 0 || dieH <= 0 || shtW <= 0 || shtH <= 0) return null
 
@@ -152,15 +163,17 @@ function inferBestGrid(
   let best: GridBest | null = null
 
   for (const { c, r } of pairs) {
-    // Normal orientation
-    const diffNormal = Math.abs(c * dieW - shtW) + Math.abs(r * dieH - shtH)
-    if (!best || diffNormal < best.diff) {
-      best = { cols: c, rows: r, rotated: false, diff: diffNormal, useGridModel: diffNormal <= thresholdMm }
+    if (allowNormal) {
+      const diffNormal = Math.abs(c * dieW - shtW) + Math.abs(r * dieH - shtH)
+      if (!best || diffNormal < best.diff) {
+        best = { cols: c, rows: r, rotated: false, diff: diffNormal, useGridModel: false }
+      }
     }
-    // Die rotated 90°
-    const diffRotated = Math.abs(c * dieH - shtW) + Math.abs(r * dieW - shtH)
-    if (diffRotated < best.diff) {
-      best = { cols: c, rows: r, rotated: true, diff: diffRotated, useGridModel: diffRotated <= thresholdMm }
+    if (allowRotated) {
+      const diffRotated = Math.abs(c * dieH - shtW) + Math.abs(r * dieW - shtH)
+      if (!best || diffRotated < best.diff) {
+        best = { cols: c, rows: r, rotated: true, diff: diffRotated, useGridModel: false }
+      }
     }
   }
 
@@ -175,6 +188,7 @@ interface Logic2Candidate {
   reqWidth: number
   reqHeight: number
   method: 'grilla' | 'proporcional'
+  rotated: boolean  // true if the proposed sheet must be rotated 90° relative to stock
 }
 
 /**
@@ -187,7 +201,9 @@ function calcGridCandidate(
   dieH: number,
   dwWastePct: number,
   stockW: number,
-  stockH: number
+  stockH: number,
+  allowNormal: boolean,
+  allowRotated: boolean,
 ): Logic2Candidate | null {
   let topCandidate: Logic2Candidate | null = null
 
@@ -200,14 +216,16 @@ function calcGridCandidate(
       const reqW = netW * factor
       const reqH = netH * factor
 
-      const fits =
-        (reqW <= stockW && reqH <= stockH) ||
-        (reqW <= stockH && reqH <= stockW)
+      const normalFit = reqW <= stockW && reqH <= stockH
+      const rotatedFit = reqW <= stockH && reqH <= stockW
+      const fits = (allowNormal && normalFit) || (allowRotated && rotatedFit)
 
       if (fits) {
         const units = cNew * rNew
+        // When both fit, prefer normal (no extra rotation of the sheet)
+        const isRotated = allowNormal && normalFit ? false : true
         if (!topCandidate || units > topCandidate.lanesProposed) {
-          topCandidate = { lanesProposed: units, reqWidth: reqW, reqHeight: reqH, method: 'grilla' }
+          topCandidate = { lanesProposed: units, reqWidth: reqW, reqHeight: reqH, method: 'grilla', rotated: isRotated }
         }
       }
     }
@@ -225,7 +243,9 @@ function calcProportionalCandidate(
   shtH: number,
   dwWastePct: number,
   stockW: number,
-  stockH: number
+  stockH: number,
+  allowNormal: boolean,
+  allowRotated: boolean,
 ): Logic2Candidate | null {
   const areaStd = shtW * shtH
   const denominator = dwWastePct < 1 ? (1 - dwWastePct) : 1
@@ -237,12 +257,13 @@ function calcProportionalCandidate(
     const newH = Math.sqrt(areaNew / ratio)
     const newW = newH * ratio
 
-    const fits =
-      (newW <= stockW && newH <= stockH) ||
-      (newW <= stockH && newH <= stockW)
+    const normalFit = newW <= stockW && newH <= stockH
+    const rotatedFit = newW <= stockH && newH <= stockW
+    const fits = (allowNormal && normalFit) || (allowRotated && rotatedFit)
 
     if (fits) {
-      return { lanesProposed: n, reqWidth: newW, reqHeight: newH, method: 'proporcional' }
+      const isRotated = allowNormal && normalFit ? false : true
+      return { lanesProposed: n, reqWidth: newW, reqHeight: newH, method: 'proporcional', rotated: isRotated }
     }
   }
 
@@ -452,26 +473,34 @@ export function runAnalysis(
         // Skip if this fgArticleNo is already covered by Lógica 1
         if (logic1Matches.some((m) => m.fgArticleNo === rec.fgArticleNo)) continue
 
-        // Check grain direction
-        if (!grainsCompatible(stockGrain, rec.grainDirection || null)) continue
-
         // Check certification (from BOM material variant)
         const matCert = parseCert(rec.matVariant)
         if (!certsCompatible(stockCert, matCert)) continue
 
-        // Check die dimensions fit in stock (normal or rotated)
+        // Check die dimensions fit in stock — determine which orientations are physically possible
         const dieNormalFits = rec.dieWidth <= stockDims.width && rec.dieHeight <= stockDims.height
         const dieRotatedFits = rec.dieHeight <= stockDims.width && rec.dieWidth <= stockDims.height
         if (!dieNormalFits && !dieRotatedFits) continue
 
-        // Infer best grid layout
+        // Grain direction check per orientation:
+        // - Normal cut: stock grain must MATCH BOM material grain
+        // - Rotated cut: stock grain must be OPPOSITE to BOM material grain
+        //   (rotating 90° flips the effective fiber direction relative to the product)
+        const matGrain = rec.grainDirection || null
+        const canUseNormal = dieNormalFits && grainsCompatible(stockGrain, matGrain)
+        const canUseRotated = dieRotatedFits && grainsCompatibleRotated(stockGrain, matGrain)
+        if (!canUseNormal && !canUseRotated) continue
+
+        // Infer best grid layout (constrained to grain-valid orientations)
         const gridBest = inferBestGrid(
           rec.lanes,
           rec.dieWidth,
           rec.dieHeight,
           rec.shtWidth,
           rec.shtHeight,
-          config.gridThresholdMm
+          config.gridThresholdMm,
+          canUseNormal,
+          canUseRotated,
         )
         if (!gridBest) continue
 
@@ -484,7 +513,9 @@ export function runAnalysis(
             rec.dieHeight,
             rec.dwWastePct,
             stockDims.width,
-            stockDims.height
+            stockDims.height,
+            canUseNormal,
+            canUseRotated,
           )
         } else {
           candidate = calcProportionalCandidate(
@@ -493,19 +524,22 @@ export function runAnalysis(
             rec.shtHeight,
             rec.dwWastePct,
             stockDims.width,
-            stockDims.height
+            stockDims.height,
+            canUseNormal,
+            canUseRotated,
           )
         }
 
         if (!candidate) continue
 
-        // Calculate loss using the proposed sheet dimensions
-        const proposedDims = { width: candidate.reqWidth, height: candidate.reqHeight }
+        // Calculate loss using the proposed sheet dimensions (area is rotation-invariant)
+        const proposedDims = candidate.rotated
+          ? { width: candidate.reqHeight, height: candidate.reqWidth }
+          : { width: candidate.reqWidth, height: candidate.reqHeight }
         const { lossPct, lossAmountCLP } = calcLoss(stockDims, proposedDims, mat.valuatedAmount)
 
-        const usableRatio = 1 - lossPct / 100
-        const kgUtilizable = mat.quantity * usableRatio
-        const unitsProducible = Math.floor(totalSheets * usableRatio * candidate.lanesProposed)
+        const kgUtilizable = mat.quantity
+        const unitsProducible = Math.floor(totalSheets * candidate.lanesProposed)
 
         logic2Matches.push({
           fgArticleNo: rec.fgArticleNo,
@@ -522,6 +556,10 @@ export function runAnalysis(
           source: 'masterdata',
           lanesProposed: candidate.lanesProposed,
           method: candidate.method,
+          // Show placement dims on the stock (swap when rotated so they read as stockW×stockH orientation)
+          proposedSheetDims: candidate.rotated
+            ? `${Math.round(candidate.reqHeight)}x${Math.round(candidate.reqWidth)}`
+            : `${Math.round(candidate.reqWidth)}x${Math.round(candidate.reqHeight)}`,
         })
       }
 

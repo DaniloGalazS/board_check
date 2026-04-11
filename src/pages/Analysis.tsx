@@ -116,7 +116,7 @@ export default function Analysis() {
       const updatedMatches = first.matches.map((m) => ({
         ...m,
         kgUtilizable: totalQty,
-        unitsProducible: m.lanes > 0 ? Math.floor(totalSheets * m.lanes) : 0,
+        unitsProducible: (m.lanesProposed ?? m.lanes) > 0 ? Math.floor(totalSheets * (m.lanesProposed ?? m.lanes)) : 0,
         lossAmountCLP: (m.lossPct / 100) * totalValue,
       }))
 

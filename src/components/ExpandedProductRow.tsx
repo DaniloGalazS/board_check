@@ -53,7 +53,7 @@ export default function ExpandedProductRow({ matches, colSpan }: Props) {
                   <td className="py-2 pr-4 text-slate-600 dark:text-slate-400">{m.kunde}</td>
                   <td className="py-2 pr-4">
                     <span className="text-slate-800 dark:text-slate-300 font-medium">{m.consumedArticleNo}</span>
-                    <span className="text-slate-400 dark:text-slate-500 ml-1">/ {m.consumedVariant}</span>
+                    <span className="text-slate-400 dark:text-slate-500 ml-1">/ {m.proposedSheetDims ?? m.consumedVariant}</span>
                   </td>
                   <td className="py-2 pr-4 text-right text-slate-900 dark:text-slate-200 font-medium">
                     {numFmt.format(m.unitsProducible)}

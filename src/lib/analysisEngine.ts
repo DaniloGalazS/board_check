@@ -392,8 +392,8 @@ export function runAnalysis(
     prodByConsumedArticle.set(parsed.articleNo, existing)
   }
 
-  // 3. Build Lógica 2 index (if data available)
-  const hasLogic2 = !!(itemStdRows?.length && bomRows?.length)
+  // 3. Build Lógica 2 index (if data available and enabled)
+  const hasLogic2 = !!(config.enableLogic2 && itemStdRows?.length && bomRows?.length)
   const logic2Index = hasLogic2
     ? buildLogic2Index(itemStdRows!, bomRows!, designWasteRows ?? [], grainIndex)
     : null
@@ -531,6 +531,15 @@ export function runAnalysis(
         }
 
         if (!candidate) continue
+
+        // Filter: proposed sheet must meet minimum dimensions (machine constraint)
+        const minW = config.minSheetWidth ?? 0
+        const minH = config.minSheetHeight ?? 0
+        if (minW > 0 || minH > 0) {
+          const pw = candidate.rotated ? candidate.reqHeight : candidate.reqWidth
+          const ph = candidate.rotated ? candidate.reqWidth : candidate.reqHeight
+          if (pw < minW || ph < minH) continue
+        }
 
         // Calculate loss using the proposed sheet dimensions (area is rotation-invariant)
         const proposedDims = candidate.rotated

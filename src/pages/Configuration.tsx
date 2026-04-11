@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import type { AppConfig } from '../lib/types'
 
 const CONFIG_KEY = 'forecast_hub_config'
-const DEFAULTS: AppConfig = { minStockAgeDays: 200, gridThresholdMm: 30 }
+const DEFAULTS: AppConfig = { minStockAgeDays: 200, gridThresholdMm: 30, minSheetWidth: 0, minSheetHeight: 0, enableLogic2: true }
 
 function loadConfig(): AppConfig {
   try {
@@ -13,6 +13,9 @@ function loadConfig(): AppConfig {
     return {
       minStockAgeDays: typeof parsed.minStockAgeDays === 'number' ? parsed.minStockAgeDays : DEFAULTS.minStockAgeDays,
       gridThresholdMm: typeof parsed.gridThresholdMm === 'number' ? parsed.gridThresholdMm : DEFAULTS.gridThresholdMm,
+      minSheetWidth: typeof parsed.minSheetWidth === 'number' ? parsed.minSheetWidth : DEFAULTS.minSheetWidth,
+      minSheetHeight: typeof parsed.minSheetHeight === 'number' ? parsed.minSheetHeight : DEFAULTS.minSheetHeight,
+      enableLogic2: typeof parsed.enableLogic2 === 'boolean' ? parsed.enableLogic2 : DEFAULTS.enableLogic2,
     }
   } catch {
     return DEFAULTS
@@ -44,6 +47,18 @@ export default function Configuration() {
 
   function setThreshold(v: number) {
     setConfig((c) => ({ ...c, gridThresholdMm: v }))
+  }
+
+  function setMinSheetWidth(v: number) {
+    setConfig((c) => ({ ...c, minSheetWidth: v }))
+  }
+
+  function setMinSheetHeight(v: number) {
+    setConfig((c) => ({ ...c, minSheetHeight: v }))
+  }
+
+  function toggleLogic2() {
+    setConfig((c) => ({ ...c, enableLogic2: !c.enableLogic2 }))
   }
 
   const inputClass = `
@@ -103,6 +118,64 @@ export default function Configuration() {
               }}
               className={inputClass}
             />
+          </div>
+
+          <div>
+            <label className="block mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+              Tamaño mínimo de pliego (mm)
+            </label>
+            <p className="text-slate-400 dark:text-slate-500 text-xs mb-4">
+              No se mostrarán propuestas de uso con pliego menor a estas dimensiones (limitante de máquina). Dejar en 0 para no aplicar límite.
+            </p>
+            <div className="flex gap-3 items-center">
+              <div className="flex-1">
+                <label className="block mb-1 text-xs text-slate-500 dark:text-slate-400">Ancho</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={config.minSheetWidth}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10)
+                    setMinSheetWidth(isNaN(v) ? 0 : v)
+                  }}
+                  className={inputClass}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block mb-1 text-xs text-slate-500 dark:text-slate-400">Alto</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={config.minSheetHeight}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10)
+                    setMinSheetHeight(isNaN(v) ? 0 : v)
+                  }}
+                  className={inputClass}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+              Análisis por Master Data (Lógica 2)
+            </label>
+            <p className="text-slate-400 dark:text-slate-500 text-xs mb-4">
+              Activa la búsqueda de candidatos en el catálogo completo de productos activos (ITEM-STD + BOM + Design Waste), además del historial de producción.
+            </p>
+            <button
+              onClick={toggleLogic2}
+              className={`
+                px-5 py-2.5 rounded-lg font-semibold text-sm transition-colors
+                ${config.enableLogic2
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                  : 'bg-slate-200 hover:bg-slate-300 text-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-slate-300'
+                }
+              `}
+            >
+              {config.enableLogic2 ? 'Activada' : 'Desactivada'}
+            </button>
           </div>
 
           <button

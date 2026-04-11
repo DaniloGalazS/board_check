@@ -142,4 +142,7 @@ export interface StoredFileMetadata {
 export interface AppConfig {
   minStockAgeDays: number;   // default 200
   gridThresholdMm: number;   // default 30 — tolerancia para inferir grilla cols×rows
+  minSheetWidth: number;     // default 0 — ancho mínimo del pliego propuesto (mm)
+  minSheetHeight: number;    // default 0 — alto mínimo del pliego propuesto (mm)
+  enableLogic2: boolean;     // default true — activa análisis por master data
 }

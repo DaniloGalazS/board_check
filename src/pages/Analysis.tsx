@@ -23,12 +23,14 @@ interface Filters {
   articleGroup: string
   articleNo: string
   onlyWithAlternative: boolean
+  source: 'all' | 'historial' | 'masterdata'
 }
 
 const DEFAULT_FILTERS: Filters = {
   articleGroup: 'BO-1',
   articleNo: '',
   onlyWithAlternative: false,
+  source: 'all',
 }
 
 export default function Analysis() {
@@ -87,6 +89,10 @@ export default function Analysis() {
       if (filters.articleGroup && m.articleGroup !== filters.articleGroup) return false
       if (filters.articleNo && !m.articleNo.toLowerCase().includes(filters.articleNo.toLowerCase())) return false
       if (filters.onlyWithAlternative && m.matches.length === 0) return false
+      if (filters.source !== 'all') {
+        const hasSource = m.matches.some((match) => match.source === filters.source)
+        if (!hasSource) return false
+      }
       return true
     })
   }, [result, filters])

@@ -30,6 +30,13 @@ const cards: NavCard[] = [
     path: '/config',
     color: 'from-slate-500 to-slate-700',
   },
+  {
+    title: 'Documentación',
+    description: 'Cómo funciona Board Check, las dos lógicas de análisis y cómo interpretar los resultados.',
+    icon: '📖',
+    path: '/docs',
+    color: 'from-violet-600 to-violet-800',
+  },
 ]
 
 export default function Home() {
@@ -46,7 +53,7 @@ export default function Home() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 w-full max-w-5xl">
         {cards.map((card) => (
           <button
             key={card.path}

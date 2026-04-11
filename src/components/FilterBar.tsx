@@ -2,6 +2,7 @@ interface Filters {
   articleGroup: string
   articleNo: string
   onlyWithAlternative: boolean
+  source: 'all' | 'historial' | 'masterdata'
 }
 
 interface Props {
@@ -44,6 +45,17 @@ export default function FilterBar({ filters, articleGroups, onChange }: Props) {
         onChange={(e) => set({ articleNo: e.target.value })}
         className={`${inputCls} w-48`}
       />
+
+      {/* Source filter */}
+      <select
+        value={filters.source}
+        onChange={(e) => set({ source: e.target.value as Filters['source'] })}
+        className={inputCls}
+      >
+        <option value="all">Todas las fuentes</option>
+        <option value="historial">Solo Historial</option>
+        <option value="masterdata">Solo Master Data</option>
+      </select>
 
       {/* Only with alternative toggle */}
       <button

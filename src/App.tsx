@@ -3,6 +3,7 @@ import Home from './pages/Home'
 import DataUpload from './pages/DataUpload'
 import Analysis from './pages/Analysis'
 import Configuration from './pages/Configuration'
+import Documentation from './pages/Documentation'
 import ThemeToggle from './components/ThemeToggle'
 import { useTheme } from './lib/useTheme'
 
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/upload" element={<DataUpload />} />
         <Route path="/analysis" element={<Analysis />} />
         <Route path="/config" element={<Configuration />} />
+        <Route path="/docs" element={<Documentation />} />
       </Routes>
       <ThemeToggle />
     </BrowserRouter>

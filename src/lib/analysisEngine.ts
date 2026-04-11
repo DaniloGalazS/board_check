@@ -441,8 +441,9 @@ export function runAnalysis(
       const seenBomId = new Set<string>()
 
       for (const rec of l2Candidates) {
-        // Filter: material article group must match stock article group
-        if (rec.matArticleGroup !== mat.articleGroup) continue
+        // Filter: material article group must match stock article group.
+        // Only apply when the column was actually found in the BOM file (non-empty).
+        if (rec.matArticleGroup && rec.matArticleGroup !== mat.articleGroup) continue
 
         // Skip if BOM id already processed for this stock material
         if (seenBomId.has(rec.bomId)) continue

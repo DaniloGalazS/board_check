@@ -24,21 +24,24 @@ function getSheet(file: File): Promise<XLSX.WorkSheet> {
  * Handles Excel files where the header row is not the first row (skips
  * summary/internal rows at the top by scanning for a row containing
  * a known header keyword).
+ *
+ * @param extraMarkers  Additional file-specific keywords to detect the header row.
+ *                      Keep these specific enough to avoid false positives in
+ *                      pre-header rows (avoid short substrings like "cad").
  */
-function sheetToRaw(sheet: XLSX.WorkSheet): Record<string, string>[] {
+function sheetToRaw(sheet: XLSX.WorkSheet, extraMarkers: string[] = []): Record<string, string>[] {
   const allRows = XLSX.utils.sheet_to_json<string[]>(sheet, {
     header: 1,
     raw: false,
     defval: '',
   });
 
-  // Find the header row: look for markers that appear in the human-readable header row
-  // but NOT in the internal field name row (e.g. "ITEMGROUPID", "ITEMVARIANTE", etc.)
-  const HEADER_MARKERS = [
+  // Base markers are safe across all file types (long enough to not false-match
+  // internal technical field names in pre-header rows).
+  const BASE_MARKERS = [
     'article group', 'stock age', 'valuated', 'nominal good', 'grammage', 'grain',
-    'finished good', 'bom id', 'cad', 'net width', 'net height', 'lanes on standard',
-    'primary customer',
   ]
+  const HEADER_MARKERS = [...BASE_MARKERS, ...extraMarkers]
   let headerRowIdx = -1
   for (let i = 0; i < allRows.length; i++) {
     const rowStr = allRows[i].join('|').toLowerCase()
@@ -149,7 +152,7 @@ export async function parseItempp(file: File): Promise<ItemppRow[]> {
 
 export async function parseItemStd(file: File): Promise<ItemStdRow[]> {
   const sheet = await getSheet(file);
-  const raw = sheetToRaw(sheet);
+  const raw = sheetToRaw(sheet, ['net width', 'net height', 'lanes on standard', 'primary customer', 'article net']);
 
   return raw
     .filter((r) => findKey(r, /article.*no/i))
@@ -167,7 +170,7 @@ export async function parseItemStd(file: File): Promise<ItemStdRow[]> {
 
 export async function parseBom(file: File): Promise<BomRow[]> {
   const sheet = await getSheet(file);
-  const raw = sheetToRaw(sheet);
+  const raw = sheetToRaw(sheet, ['finished good', 'bom id']);
 
   return raw
     .filter((r) => findKey(r, /finished.*good.*article/i) || findKey(r, /article.*no/i))
@@ -191,7 +194,7 @@ function parseWastePct(val: string): number {
 
 export async function parseDesignWaste(file: File): Promise<DesignWasteRow[]> {
   const sheet = await getSheet(file);
-  const raw = sheetToRaw(sheet);
+  const raw = sheetToRaw(sheet, ['cad waste', 'cad- waste', 'design waste']);
 
   return raw
     .filter((r) => findKey(r, /^bom$/i) || findKey(r, /bom.*id/i))

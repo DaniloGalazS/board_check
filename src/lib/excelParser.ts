@@ -157,9 +157,11 @@ export async function parseItemStd(file: File): Promise<ItemStdRow[]> {
   return raw
     .filter((r) => findKey(r, /article.*no/i))
     .map((r) => ({
-      articleNo: findKey(r, /article.*no\.?$/i) || findKey(r, /^article no/i),
-      description: findKey(r, /article.*desc/i),
-      primaryCustomer: findKey(r, /primary.*customer/i),
+      // Use ^article no to avoid matching "Cust article no." before "Article no."
+      articleNo: findKey(r, /^article no/i),
+      description: findKey(r, /^article description/i),
+      // Use "primary customer name" to get the name column, not the ID column
+      primaryCustomer: findKey(r, /primary.*customer.*name/i) || findKey(r, /primary.*customer/i),
       lanesFormat3: num(findKey(r, /lanes.*(?:on.*)?(?:standard.*)?format.*3/i) || findKey(r, /lanes.*3/i)),
       lanesFormat6: num(findKey(r, /lanes.*(?:on.*)?(?:standard.*)?format.*6/i) || findKey(r, /lanes.*6/i)),
       dieWidth: num(findKey(r, /article.*net.*width/i) || findKey(r, /net.*width/i)),
@@ -179,7 +181,8 @@ export async function parseBom(file: File): Promise<BomRow[]> {
       matArticleNo: findKey(r, /^article.*no\.?$/i) || findKey(r, /^article no$/i),
       matArticleGroup: findKey(r, /article.*group/i),
       matVariant: findKey(r, /^variant$/i),
-      matDescription: findKey(r, /article.*desc/i),
+      // Use ^article to avoid matching "Finished good article desc." before "Article description"
+      matDescription: findKey(r, /^article description/i),
       bomId: findKey(r, /bom.*id/i) || findKey(r, /^bom$/i),
     }))
     .filter((r) => r.fgArticleNo !== '' && r.matArticleNo !== '');

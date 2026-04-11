@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import type { BoinvRow, ProdStdRow, ItemppRow } from './types';
+import type { BoinvRow, ProdStdRow, ItemppRow, ItemStdRow, BomRow, DesignWasteRow } from './types';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -34,7 +34,11 @@ function sheetToRaw(sheet: XLSX.WorkSheet): Record<string, string>[] {
 
   // Find the header row: look for markers that appear in the human-readable header row
   // but NOT in the internal field name row (e.g. "ITEMGROUPID", "ITEMVARIANTE", etc.)
-  const HEADER_MARKERS = ['article group', 'stock age', 'valuated', 'nominal good', 'grammage', 'grain']
+  const HEADER_MARKERS = [
+    'article group', 'stock age', 'valuated', 'nominal good', 'grammage', 'grain',
+    'finished good', 'bom id', 'cad', 'net width', 'net height', 'lanes on standard',
+    'primary customer',
+  ]
   let headerRowIdx = -1
   for (let i = 0; i < allRows.length; i++) {
     const rowStr = allRows[i].join('|').toLowerCase()
@@ -141,4 +145,59 @@ export async function parseItempp(file: File): Promise<ItemppRow[]> {
       grainDirection: findKey(r, /grain/i) || findKey(r, /496/i),
     }))
     .filter((r) => r.articleNo !== '');
+}
+
+export async function parseItemStd(file: File): Promise<ItemStdRow[]> {
+  const sheet = await getSheet(file);
+  const raw = sheetToRaw(sheet);
+
+  return raw
+    .filter((r) => findKey(r, /article.*no/i))
+    .map((r) => ({
+      articleNo: findKey(r, /article.*no\.?$/i) || findKey(r, /^article no/i),
+      description: findKey(r, /article.*desc/i),
+      primaryCustomer: findKey(r, /primary.*customer/i),
+      lanesFormat3: num(findKey(r, /lanes.*(?:on.*)?(?:standard.*)?format.*3/i) || findKey(r, /lanes.*3/i)),
+      lanesFormat6: num(findKey(r, /lanes.*(?:on.*)?(?:standard.*)?format.*6/i) || findKey(r, /lanes.*6/i)),
+      dieWidth: num(findKey(r, /article.*net.*width/i) || findKey(r, /net.*width/i)),
+      dieHeight: num(findKey(r, /article.*net.*(?:height|length)/i) || findKey(r, /net.*(?:height|length)/i)),
+    }))
+    .filter((r) => r.articleNo !== '');
+}
+
+export async function parseBom(file: File): Promise<BomRow[]> {
+  const sheet = await getSheet(file);
+  const raw = sheetToRaw(sheet);
+
+  return raw
+    .filter((r) => findKey(r, /finished.*good.*article/i) || findKey(r, /article.*no/i))
+    .map((r) => ({
+      fgArticleNo: findKey(r, /finished.*good.*article/i),
+      matArticleNo: findKey(r, /^article.*no\.?$/i) || findKey(r, /^article no$/i),
+      matArticleGroup: findKey(r, /article.*group/i),
+      matVariant: findKey(r, /^variant$/i),
+      matDescription: findKey(r, /article.*desc/i),
+      bomId: findKey(r, /bom.*id/i) || findKey(r, /^bom$/i),
+    }))
+    .filter((r) => r.fgArticleNo !== '' && r.matArticleNo !== '');
+}
+
+/** Parses "18,5%" → 0.185 */
+function parseWastePct(val: string): number {
+  const cleaned = val.replace(/,/g, '.').replace(/%/g, '').trim();
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? 0 : n / 100;
+}
+
+export async function parseDesignWaste(file: File): Promise<DesignWasteRow[]> {
+  const sheet = await getSheet(file);
+  const raw = sheetToRaw(sheet);
+
+  return raw
+    .filter((r) => findKey(r, /^bom$/i) || findKey(r, /bom.*id/i))
+    .map((r) => ({
+      bomId: findKey(r, /^bom$/i) || findKey(r, /bom.*id/i),
+      cadWastePct: parseWastePct(findKey(r, /cad.*waste/i)),
+    }))
+    .filter((r) => r.bomId !== '');
 }

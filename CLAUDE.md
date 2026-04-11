@@ -1,4 +1,8 @@
-# Board Check — CLAUDE.md
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+---
 
 ## Qué es este proyecto
 
@@ -124,7 +128,9 @@ Los KPI cards se recalculan dinámicamente según el `articleGroup` seleccionado
 Formato numérico compacto (función `clpCompact`): ≥1MM → `$2.3MM`, ≥1k → `$567k`
 
 ### Columnas de la tabla de materiales
-Article no. · Variante · Descripción · Días stock · Cantidad · Unidad · **Valor stock** · N° FG · Kilos util. · Pérdida (min→max) · Prom. pérd.
+Article no. · Variante · Descripción · Días stock · Cantidad · **SHT** · Unidad · **Valor stock** · N° FG · Kilos util. · Pérdida (min→max) · Prom. pérd.
+
+SHT = pliegos totales, calculados desde kg ÷ (área m² × gramaje). Se muestra redondeado al entero superior.
 
 ### Agrupación por material (`groupByMaterial`, default: `true`)
 Activo por defecto. Agrupa filas con mismo `articleNo|variant` (distintos lotes/batches):
@@ -151,6 +157,33 @@ npm run build    # build para producción
 npm run preview  # preview del build
 npx tsc --noEmit # verificar tipos sin compilar
 ```
+
+## Lógica 2 — Análisis por Master Data (en diseño)
+
+Especificación completa en `logica2_master_data.md`. Resumen para contexto:
+
+Lógica 1 (ya implementada) busca candidatos en **historial de producción** (PROD-STD). Lógica 2 busca candidatos en la **base completa de productos activos** aunque no haya historial de consumo — proponiendo reducir unidades al pliego si el pliego estándar no cabe en el material inmovilizado.
+
+### Nuevos archivos de entrada (no implementados aún)
+- **ITEM-STD** — Master data de productos: dimensiones de troquel, unidades/pliego por formato
+- **BOM** — Relación FG ↔ material consumido (join key con BOINV y con Design Waste)
+- **Design Waste** — Merma de diseño por producto (join por `Bom Id`)
+
+### Flujo de cálculo Lógica 2
+1. Join ITEM-STD × BOM × Design Waste → registro completo por producto
+2. Filtro elegibilidad: mismo `articleNo` de cartulina, dirección de fibra coincidente, troquel entra en el stock
+3. **Inferir grilla** (cols × rows) desde dimensiones troquel + pliego estándar + `lanes`
+4. Si `diff_grilla ≤ UMBRAL_GRILLA_MM` (default 30mm config): modelo de grilla — iterar reducciones cols×rows
+5. Si `diff > umbral`: modelo proporcional — reducir N desde `lanes-1` hasta que el pliego quepa
+6. Calcular pérdida y unidades producibles igual que Lógica 1
+7. **Deduplicar**: si un producto ya aparece en Lógica 1, priorizar ese resultado; exclusivos de Lógica 2 reciben badge `Master Data`
+
+### Impacto en UI
+- DataUpload: 2 grupos visuales (3 archivos Lógica 1 + 3 archivos Lógica 2)
+- Analysis: nuevo KPI "Productos propuestos sin historial"; columnas nuevas en fila expandida: `Unidades/pliego propuestas`, `Fuente` (badge Historial/Master Data), `Método` (badge Grilla/Proporcional)
+- Configuration: nuevo campo `Umbral de confianza de grilla (mm)`
+
+---
 
 ## Notas importantes
 

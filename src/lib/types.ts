@@ -31,6 +31,30 @@ export interface ItemppRow {
   grainDirection: string;  // "Long" | "Short" | etc.
 }
 
+export interface ItemStdRow {
+  articleNo: string;
+  description: string;
+  primaryCustomer: string;
+  lanesFormat3: number;    // pcs/SHT para formato 3
+  lanesFormat6: number;    // pcs/SHT para formato 6
+  dieWidth: number;        // mm — ancho del corte de troquel
+  dieHeight: number;       // mm — largo del corte de troquel
+}
+
+export interface BomRow {
+  fgArticleNo: string;
+  matArticleNo: string;
+  matArticleGroup: string; // BO-1, PA-1, etc. — identifica el tipo de cartulina
+  matVariant: string;      // contiene dims del pliego estándar (ANCHOxLARGO)
+  matDescription: string;  // contiene gramaje (ej: "GC1 350g")
+  bomId: string;
+}
+
+export interface DesignWasteRow {
+  bomId: string;
+  cadWastePct: number;     // decimal, ej: 0.185 (parseado desde "18,5%")
+}
+
 // ─── Parsed / enriched structures ───────────────────────────────────────────
 
 export interface ParsedDimensions {
@@ -45,12 +69,15 @@ export interface MaterialMatch {
   fgDescription: string;
   kunde: string;
   lanes: number;
-  consumedArticleNo: string;   // article no. of the board used (from PROD-STD articleIn)
-  consumedVariant: string;     // variant of the board used (from PROD-STD articleIn)
+  consumedArticleNo: string;   // article no. of the board used
+  consumedVariant: string;     // variant of the board used
   unitsProducible: number;     // floor(totalSheets × lanes)
   lossPct: number;
   kgUtilizable: number;
   lossAmountCLP: number;
+  source: 'historial' | 'masterdata';
+  lanesProposed?: number;      // Lógica 2: units/sheet resultantes (puede ser < lanes)
+  method?: 'grilla' | 'proporcional'; // Lógica 2: método de cálculo
 }
 
 export interface AnalyzedMaterial {
@@ -81,6 +108,7 @@ export interface KpiSummary {
   kgPossibleToUse: number;
   kgPossiblePct: number;
   totalLossAmount: number;
+  masterdataOnlyCount: number; // FGs únicos encontrados solo por Lógica 2
 }
 
 /** Stock totals broken down by article group, to support filtered KPI cards */
@@ -100,7 +128,7 @@ export interface AnalysisResult {
 
 // ─── Storage metadata ────────────────────────────────────────────────────────
 
-export type FileType = 'boinv' | 'prodstd' | 'itempp';
+export type FileType = 'boinv' | 'prodstd' | 'itempp' | 'itemstd' | 'bom' | 'designwaste';
 
 export interface StoredFileMetadata {
   fileType: FileType;
@@ -111,5 +139,6 @@ export interface StoredFileMetadata {
 // ─── App config ──────────────────────────────────────────────────────────────
 
 export interface AppConfig {
-  minStockAgeDays: number; // default 200
+  minStockAgeDays: number;   // default 200
+  gridThresholdMm: number;   // default 30 — tolerancia para inferir grilla cols×rows
 }

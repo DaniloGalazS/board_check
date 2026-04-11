@@ -44,10 +44,13 @@ export default function Analysis() {
       setLoading(true)
       setError(null)
       try {
-        const [boinv, prodstd, itempp] = await Promise.all([
+        const [boinv, prodstd, itempp, itemstd, bom, designwaste] = await Promise.all([
           loadRows('boinv'),
           loadRows('prodstd'),
           loadRows('itempp'),
+          loadRows('itemstd'),
+          loadRows('bom'),
+          loadRows('designwaste'),
         ])
 
         if (!boinv.length || !prodstd.length) {
@@ -57,7 +60,12 @@ export default function Analysis() {
         }
 
         const config = getConfig()
-        const res = runAnalysis(boinv, prodstd, itempp, config)
+        const res = runAnalysis(
+          boinv, prodstd, itempp, config,
+          itemstd.length ? itemstd : undefined,
+          bom.length ? bom : undefined,
+          designwaste.length ? designwaste : undefined,
+        )
         setResult(res)
       } catch (err) {
         setError(`Error al procesar los datos: ${err instanceof Error ? err.message : 'Error desconocido'}`)
@@ -143,6 +151,13 @@ export default function Analysis() {
     const withMatch = filteredMaterials.filter((m) => m.matches.length > 0)
     const kgPossible = withMatch.reduce((s, m) => s + m.quantity, 0)
 
+    const masterdataOnlyCount = filteredMaterials.reduce((count, mat) => {
+      const uniqueMd = new Set(
+        mat.matches.filter((m) => m.source === 'masterdata').map((m) => m.fgArticleNo)
+      ).size
+      return count + uniqueMd
+    }, 0)
+
     return {
       totalStockAmount: gs.totalStockAmount,
       obsoleteAmount: gs.obsoleteAmount,
@@ -151,6 +166,7 @@ export default function Analysis() {
       kgPossibleToUse: kgPossible,
       kgPossiblePct: gs.obsoleteKg > 0 ? (kgPossible / gs.obsoleteKg) * 100 : 0,
       totalLossAmount: withMatch.reduce((s, m) => s + m.lossAmountCLP, 0),
+      masterdataOnlyCount,
     }
   }, [result, filters.articleGroup, filteredMaterials])
 
@@ -202,7 +218,7 @@ export default function Analysis() {
         {!loading && result && filteredKpis && (
           <>
             {/* KPI Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 mb-8">
+            <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3 mb-8">
               <KpiCard
                 title="Monto total stock"
                 value={clpCompact(filteredKpis.totalStockAmount)}
@@ -237,6 +253,14 @@ export default function Analysis() {
                 value={clpCompact(filteredKpis.totalLossAmount)}
                 accent="danger"
               />
+              {filteredKpis.masterdataOnlyCount > 0 && (
+                <KpiCard
+                  title="FG sin historial"
+                  value={String(filteredKpis.masterdataOnlyCount)}
+                  subtitle="Solo por master data"
+                  accent="success"
+                />
+              )}
             </div>
 
             {/* Filters */}

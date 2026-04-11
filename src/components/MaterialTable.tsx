@@ -14,6 +14,10 @@ const COL_COUNT = 13
 export default function MaterialTable({ materials }: Props) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
 
+  function uniqueArticleCount(matches: AnalyzedMaterial['matches']): number {
+    return new Set(matches.map((m) => m.fgArticleNo)).size
+  }
+
   function toggleRow(key: string) {
     setExpandedKeys((prev) => {
       const next = new Set(prev)
@@ -57,6 +61,7 @@ export default function MaterialTable({ materials }: Props) {
             const key = `${mat.articleNo}|${mat.variant}|${mat.batchNo}|${idx}`
             const isExpanded = expandedKeys.has(key)
             const hasMatches = mat.matches.length > 0
+            const fgCount = uniqueArticleCount(mat.matches)
 
             return (
               <>
@@ -100,7 +105,7 @@ export default function MaterialTable({ materials }: Props) {
                   <td className="px-4 py-3 text-right">
                     {hasMatches ? (
                       <span className="bg-emerald-100 text-emerald-700 dark:bg-emerald-800/50 dark:text-emerald-300 text-xs px-2 py-1 rounded-full font-medium">
-                        {mat.matches.length}
+                        {fgCount}
                       </span>
                     ) : (
                       <span className="text-slate-300 dark:text-slate-600">—</span>

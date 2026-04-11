@@ -2,6 +2,9 @@ import type {
   BoinvRow,
   ProdStdRow,
   ItemppRow,
+  ItemStdRow,
+  BomRow,
+  DesignWasteRow,
   AppConfig,
   ParsedDimensions,
   MaterialMatch,
@@ -110,13 +113,245 @@ function calcLoss(
   return { lossPct: Math.max(0, lossPct), lossAmountCLP: Math.max(0, lossAmountCLP) }
 }
 
+// ─── Lógica 2 — Grid inference ────────────────────────────────────────────────
+
+/** Returns all integer divisor pairs (c, r) where c * r === n, c >= 1, r >= 1 */
+function getDivisorPairs(n: number): Array<{ c: number; r: number }> {
+  const pairs: Array<{ c: number; r: number }> = []
+  for (let c = 1; c <= n; c++) {
+    if (n % c === 0) {
+      pairs.push({ c, r: n / c })
+    }
+  }
+  return pairs
+}
+
+interface GridBest {
+  cols: number
+  rows: number
+  rotated: boolean
+  diff: number
+  useGridModel: boolean
+}
+
+/**
+ * Finds the best (cols × rows) layout that approximates the standard sheet.
+ * Returns whether the grid model should be used (diff <= threshold).
+ */
+function inferBestGrid(
+  lanes: number,
+  dieW: number,
+  dieH: number,
+  shtW: number,
+  shtH: number,
+  thresholdMm: number
+): GridBest | null {
+  if (lanes <= 0 || dieW <= 0 || dieH <= 0 || shtW <= 0 || shtH <= 0) return null
+
+  const pairs = getDivisorPairs(lanes)
+  let best: GridBest | null = null
+
+  for (const { c, r } of pairs) {
+    // Normal orientation
+    const diffNormal = Math.abs(c * dieW - shtW) + Math.abs(r * dieH - shtH)
+    if (!best || diffNormal < best.diff) {
+      best = { cols: c, rows: r, rotated: false, diff: diffNormal, useGridModel: diffNormal <= thresholdMm }
+    }
+    // Die rotated 90°
+    const diffRotated = Math.abs(c * dieH - shtW) + Math.abs(r * dieW - shtH)
+    if (diffRotated < best.diff) {
+      best = { cols: c, rows: r, rotated: true, diff: diffRotated, useGridModel: diffRotated <= thresholdMm }
+    }
+  }
+
+  if (best) {
+    best.useGridModel = best.diff <= thresholdMm
+  }
+  return best
+}
+
+interface Logic2Candidate {
+  lanesProposed: number
+  reqWidth: number
+  reqHeight: number
+  method: 'grilla' | 'proporcional'
+}
+
+/**
+ * Grid model: iterate all (cNew, rNew) reductions and find the one that
+ * maximizes units while fitting within stock dimensions.
+ */
+function calcGridCandidate(
+  best: GridBest,
+  dieW: number,
+  dieH: number,
+  dwWastePct: number,
+  stockW: number,
+  stockH: number
+): Logic2Candidate | null {
+  let topCandidate: Logic2Candidate | null = null
+
+  for (let cNew = 1; cNew <= best.cols; cNew++) {
+    for (let rNew = 1; rNew <= best.rows; rNew++) {
+      const netW = best.rotated ? cNew * dieH : cNew * dieW
+      const netH = best.rotated ? rNew * dieW : rNew * dieH
+
+      const factor = dwWastePct < 1 ? 1 / (1 - dwWastePct) : 1
+      const reqW = netW * factor
+      const reqH = netH * factor
+
+      const fits =
+        (reqW <= stockW && reqH <= stockH) ||
+        (reqW <= stockH && reqH <= stockW)
+
+      if (fits) {
+        const units = cNew * rNew
+        if (!topCandidate || units > topCandidate.lanesProposed) {
+          topCandidate = { lanesProposed: units, reqWidth: reqW, reqHeight: reqH, method: 'grilla' }
+        }
+      }
+    }
+  }
+
+  return topCandidate
+}
+
+/**
+ * Proportional model: reduce N from lanes-1 downward until a sheet fits.
+ */
+function calcProportionalCandidate(
+  lanes: number,
+  shtW: number,
+  shtH: number,
+  dwWastePct: number,
+  stockW: number,
+  stockH: number
+): Logic2Candidate | null {
+  const areaStd = shtW * shtH
+  const denominator = dwWastePct < 1 ? (1 - dwWastePct) : 1
+  const areaNetPerUnit = (areaStd * denominator) / lanes
+  const ratio = shtW / shtH
+
+  for (let n = lanes - 1; n >= 1; n--) {
+    const areaNew = (areaNetPerUnit * n) / denominator
+    const newH = Math.sqrt(areaNew / ratio)
+    const newW = newH * ratio
+
+    const fits =
+      (newW <= stockW && newH <= stockH) ||
+      (newW <= stockH && newH <= stockW)
+
+    if (fits) {
+      return { lanesProposed: n, reqWidth: newW, reqHeight: newH, method: 'proporcional' }
+    }
+  }
+
+  return null
+}
+
+// ─── Lógica 2 internal record ─────────────────────────────────────────────────
+
+interface Logic2Record {
+  fgArticleNo: string
+  fgDescription: string
+  kunde: string
+  lanes: number
+  dieWidth: number
+  dieHeight: number
+  bomId: string
+  matArticleNo: string
+  matArticleGroup: string
+  shtWidth: number
+  shtHeight: number
+  grammage: number
+  dwWastePct: number
+  grainDirection: string
+  matVariant: string
+}
+
+/**
+ * Joins ITEM-STD × BOM × Design Waste and returns one Logic2Record per BOM row.
+ * Indexed by matArticleNo for fast lookup.
+ */
+function buildLogic2Index(
+  itemStdRows: ItemStdRow[],
+  bomRows: BomRow[],
+  designWasteRows: DesignWasteRow[],
+  grainIndex: Map<string, string>
+): Map<string, Logic2Record[]> {
+  const itemStdByArticleNo = new Map<string, ItemStdRow>()
+  for (const r of itemStdRows) {
+    if (!itemStdByArticleNo.has(r.articleNo)) {
+      itemStdByArticleNo.set(r.articleNo, r)
+    }
+  }
+
+  const dwByBomId = new Map<string, number>()
+  for (const r of designWasteRows) {
+    dwByBomId.set(r.bomId, r.cadWastePct)
+  }
+
+  const index = new Map<string, Logic2Record[]>()
+
+  for (const bom of bomRows) {
+    const item = itemStdByArticleNo.get(bom.fgArticleNo)
+    if (!item) continue
+
+    const dims = parseDimsFromString(bom.matVariant)
+    if (!dims) continue
+
+    const grammage = parseGrammage(bom.matDescription)
+    if (!grammage) continue
+
+    const lanes = item.lanesFormat3 || item.lanesFormat6
+    if (lanes <= 0) continue
+
+    if (item.dieWidth <= 0 || item.dieHeight <= 0) continue
+
+    const dwWastePct = dwByBomId.get(bom.bomId) ?? 0
+    if (dwWastePct >= 1) {
+      console.warn(`Design Waste >= 100% for BOM ${bom.bomId}, skipping`)
+      continue
+    }
+
+    const grainDirection = grainIndex.get(`${bom.matArticleNo}|${bom.matVariant}`) ?? ''
+
+    const record: Logic2Record = {
+      fgArticleNo: bom.fgArticleNo,
+      fgDescription: item.description,
+      kunde: item.primaryCustomer,
+      lanes,
+      dieWidth: item.dieWidth,
+      dieHeight: item.dieHeight,
+      bomId: bom.bomId,
+      matArticleNo: bom.matArticleNo,
+      matArticleGroup: bom.matArticleGroup,
+      shtWidth: dims.width,
+      shtHeight: dims.height,
+      grammage,
+      dwWastePct,
+      grainDirection,
+      matVariant: bom.matVariant,
+    }
+
+    const existing = index.get(bom.matArticleNo) ?? []
+    existing.push(record)
+    index.set(bom.matArticleNo, existing)
+  }
+
+  return index
+}
+
 // ─── Main engine ──────────────────────────────────────────────────────────────
 
 export function runAnalysis(
   boinvRows: BoinvRow[],
   prodStdRows: ProdStdRow[],
   itemppRows: ItemppRow[],
-  config: AppConfig
+  config: AppConfig,
+  itemStdRows?: ItemStdRow[],
+  bomRows?: BomRow[],
+  designWasteRows?: DesignWasteRow[]
 ): AnalysisResult {
   // 1. Build grain direction index: "articleNo|variant" → grainDirection
   const grainIndex = new Map<string, string>()
@@ -136,11 +371,18 @@ export function runAnalysis(
     prodByConsumedArticle.set(parsed.articleNo, existing)
   }
 
-  // 3. Filter aged stock
+  // 3. Build Lógica 2 index (if data available)
+  const hasLogic2 = !!(itemStdRows?.length && bomRows?.length)
+  const logic2Index = hasLogic2
+    ? buildLogic2Index(itemStdRows!, bomRows!, designWasteRows ?? [], grainIndex)
+    : null
+
+  // 4. Filter aged stock
   const agedStock = boinvRows.filter((r) => r.stockAge > config.minStockAgeDays)
 
-  // 4. Analyze each aged material (one row per BOINV row — multiple batches shown separately)
+  // 5. Analyze each aged material
   const analyzedMaterials: AnalyzedMaterial[] = []
+  let totalMasterdataOnlyCount = 0
 
   for (const mat of agedStock) {
 
@@ -149,27 +391,23 @@ export function runAnalysis(
     const stockGrain = grainIndex.get(`${mat.articleNo}|${mat.variant}`) ?? null
     const stockCert = parseCert(mat.variant)
 
-    // Find candidate productions using this material's article no.
+    // ── Lógica 1: historical matches ──────────────────────────────────────────
     const candidates = prodByConsumedArticle.get(mat.articleNo) ?? []
-    const matches: MaterialMatch[] = []
-    const seenFG = new Set<string>() // deduplicate FG by articleNo+variant
+    const logic1Matches: MaterialMatch[] = []
+    const seenFG = new Set<string>()
 
     for (const prod of candidates) {
       const consumed = parseArticleIn(prod.articleIn)
       if (!consumed) continue
 
-      // Parse consumed material variant dimensions
       const consumedDims = parseDimsFromString(consumed.variant)
       if (!consumedDims) continue
 
-      // Check dimension compatibility
       if (!stockDims || !dimsCompatible(stockDims, consumedDims)) continue
 
-      // Check grain direction
       const consumedGrain = grainIndex.get(`${consumed.articleNo}|${consumed.variant}`) ?? null
       if (!grainsCompatible(stockGrain, consumedGrain)) continue
 
-      // Check certification compatibility
       const consumedCert = parseCert(consumed.variant)
       if (!certsCompatible(stockCert, consumedCert)) continue
 
@@ -179,7 +417,7 @@ export function runAnalysis(
 
       const { lossPct, lossAmountCLP } = calcLoss(stockDims!, consumedDims, mat.valuatedAmount)
 
-      matches.push({
+      logic1Matches.push({
         fgArticleNo: prod.articleNo,
         fgVariant: prod.variant,
         fgDescription: prod.description,
@@ -191,14 +429,110 @@ export function runAnalysis(
         lossPct,
         kgUtilizable: mat.quantity,
         lossAmountCLP,
+        source: 'historial',
       })
     }
+
+    // ── Lógica 2: master data matches ─────────────────────────────────────────
+    const logic2Matches: MaterialMatch[] = []
+
+    if (logic2Index && stockDims) {
+      const l2Candidates = logic2Index.get(mat.articleNo) ?? []
+      const seenBomId = new Set<string>()
+
+      for (const rec of l2Candidates) {
+        // Filter: material article group must match stock article group
+        if (rec.matArticleGroup !== mat.articleGroup) continue
+
+        // Skip if BOM id already processed for this stock material
+        if (seenBomId.has(rec.bomId)) continue
+        seenBomId.add(rec.bomId)
+
+        // Skip if this fgArticleNo is already covered by Lógica 1
+        if (logic1Matches.some((m) => m.fgArticleNo === rec.fgArticleNo)) continue
+
+        // Check grain direction
+        if (!grainsCompatible(stockGrain, rec.grainDirection || null)) continue
+
+        // Check certification (from BOM material variant)
+        const matCert = parseCert(rec.matVariant)
+        if (!certsCompatible(stockCert, matCert)) continue
+
+        // Check die dimensions fit in stock (normal or rotated)
+        const dieNormalFits = rec.dieWidth <= stockDims.width && rec.dieHeight <= stockDims.height
+        const dieRotatedFits = rec.dieHeight <= stockDims.width && rec.dieWidth <= stockDims.height
+        if (!dieNormalFits && !dieRotatedFits) continue
+
+        // Infer best grid layout
+        const gridBest = inferBestGrid(
+          rec.lanes,
+          rec.dieWidth,
+          rec.dieHeight,
+          rec.shtWidth,
+          rec.shtHeight,
+          config.gridThresholdMm
+        )
+        if (!gridBest) continue
+
+        // Compute candidate using appropriate model
+        let candidate: Logic2Candidate | null = null
+        if (gridBest.useGridModel) {
+          candidate = calcGridCandidate(
+            gridBest,
+            rec.dieWidth,
+            rec.dieHeight,
+            rec.dwWastePct,
+            stockDims.width,
+            stockDims.height
+          )
+        } else {
+          candidate = calcProportionalCandidate(
+            rec.lanes,
+            rec.shtWidth,
+            rec.shtHeight,
+            rec.dwWastePct,
+            stockDims.width,
+            stockDims.height
+          )
+        }
+
+        if (!candidate) continue
+
+        // Calculate loss using the proposed sheet dimensions
+        const proposedDims = { width: candidate.reqWidth, height: candidate.reqHeight }
+        const { lossPct, lossAmountCLP } = calcLoss(stockDims, proposedDims, mat.valuatedAmount)
+
+        const usableRatio = 1 - lossPct / 100
+        const kgUtilizable = mat.quantity * usableRatio
+        const unitsProducible = Math.floor(totalSheets * usableRatio * candidate.lanesProposed)
+
+        logic2Matches.push({
+          fgArticleNo: rec.fgArticleNo,
+          fgVariant: '',   // ITEM-STD has no variant
+          fgDescription: rec.fgDescription,
+          kunde: rec.kunde,
+          lanes: rec.lanes,
+          consumedArticleNo: rec.matArticleNo,
+          consumedVariant: rec.matVariant,
+          unitsProducible,
+          lossPct,
+          kgUtilizable,
+          lossAmountCLP,
+          source: 'masterdata',
+          lanesProposed: candidate.lanesProposed,
+          method: candidate.method,
+        })
+      }
+
+      totalMasterdataOnlyCount += new Set(logic2Matches.map((m) => m.fgArticleNo)).size
+    }
+
+    const matches = [...logic1Matches, ...logic2Matches]
 
     const lossPcts = matches.map((m) => m.lossPct)
     const minLossPct = lossPcts.length > 0 ? Math.min(...lossPcts) : 0
     const maxLossPct = lossPcts.length > 0 ? Math.max(...lossPcts) : 0
     const avgLossPct = lossPcts.length > 0 ? lossPcts.reduce((s, v) => s + v, 0) / lossPcts.length : 0
-    // Use average loss amount for the material-level summary
     const totalLossAmt = matches.length > 0
       ? matches.reduce((s, m) => s + m.lossAmountCLP, 0) / matches.length
       : 0
@@ -224,7 +558,7 @@ export function runAnalysis(
     })
   }
 
-  // 5. Compute per-group stock stats from all boinv rows (including non-aged)
+  // 6. Compute per-group stock stats from all boinv rows (including non-aged)
   const groupStatsMap = new Map<string, { totalStockAmount: number; obsoleteAmount: number; totalKg: number; obsoleteKg: number }>()
 
   function getGroupStat(group: string) {
@@ -252,7 +586,7 @@ export function runAnalysis(
 
   const groupStats: AnalysisResult['groupStats'] = Object.fromEntries(groupStatsMap)
 
-  // 6. Compute global KPIs
+  // 7. Compute global KPIs
   const { totalStockAmount, obsoleteAmount, totalKg: totalKgInStock } = groupStats['__all__'] ?? { totalStockAmount: 0, obsoleteAmount: 0, totalKg: 0 }
   const materialsWithMatch = analyzedMaterials.filter((m) => m.matches.length > 0)
   const kgPossibleToUse = materialsWithMatch.reduce((s, m) => s + m.quantity, 0)
@@ -265,6 +599,7 @@ export function runAnalysis(
     kgPossibleToUse,
     kgPossiblePct: totalKgInStock > 0 ? (kgPossibleToUse / totalKgInStock) * 100 : 0,
     totalLossAmount: materialsWithMatch.reduce((s, m) => s + m.lossAmountCLP, 0),
+    masterdataOnlyCount: totalMasterdataOnlyCount,
   }
 
   return { materials: analyzedMaterials, kpis, groupStats }

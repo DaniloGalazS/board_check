@@ -1,13 +1,16 @@
 import { openDB, type IDBPDatabase } from 'idb';
-import type { BoinvRow, ProdStdRow, ItemppRow, StoredFileMetadata, FileType } from './types';
+import type { BoinvRow, ProdStdRow, ItemppRow, ItemStdRow, BomRow, DesignWasteRow, StoredFileMetadata, FileType } from './types';
 
 const DB_NAME = 'forecast-hub';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 type StoreMap = {
   boinv: BoinvRow;
   prodstd: ProdStdRow;
   itempp: ItemppRow;
+  itemstd: ItemStdRow;
+  bom: BomRow;
+  designwaste: DesignWasteRow;
   metadata: StoredFileMetadata;
 };
 
@@ -16,18 +19,23 @@ let dbPromise: Promise<IDBPDatabase> | null = null;
 function getDB(): Promise<IDBPDatabase> {
   if (!dbPromise) {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        if (!db.objectStoreNames.contains('boinv')) {
+      upgrade(db, oldVersion) {
+        if (oldVersion < 1) {
           db.createObjectStore('boinv', { autoIncrement: true });
-        }
-        if (!db.objectStoreNames.contains('prodstd')) {
           db.createObjectStore('prodstd', { autoIncrement: true });
-        }
-        if (!db.objectStoreNames.contains('itempp')) {
           db.createObjectStore('itempp', { autoIncrement: true });
-        }
-        if (!db.objectStoreNames.contains('metadata')) {
           db.createObjectStore('metadata', { keyPath: 'fileType' });
+        }
+        if (oldVersion < 2) {
+          if (!db.objectStoreNames.contains('itemstd')) {
+            db.createObjectStore('itemstd', { autoIncrement: true });
+          }
+          if (!db.objectStoreNames.contains('bom')) {
+            db.createObjectStore('bom', { autoIncrement: true });
+          }
+          if (!db.objectStoreNames.contains('designwaste')) {
+            db.createObjectStore('designwaste', { autoIncrement: true });
+          }
         }
       },
     });

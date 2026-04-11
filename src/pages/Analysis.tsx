@@ -85,16 +85,29 @@ export default function Analysis() {
 
   const filteredMaterials = useMemo((): AnalyzedMaterial[] => {
     if (!result) return []
-    return result.materials.filter((m) => {
-      if (filters.articleGroup && m.articleGroup !== filters.articleGroup) return false
-      if (filters.articleNo && !m.articleNo.toLowerCase().includes(filters.articleNo.toLowerCase())) return false
-      if (filters.onlyWithAlternative && m.matches.length === 0) return false
-      if (filters.source !== 'all') {
-        const hasSource = m.matches.some((match) => match.source === filters.source)
-        if (!hasSource) return false
-      }
-      return true
-    })
+    return result.materials
+      .filter((m) => {
+        if (filters.articleGroup && m.articleGroup !== filters.articleGroup) return false
+        if (filters.articleNo && !m.articleNo.toLowerCase().includes(filters.articleNo.toLowerCase())) return false
+        if (filters.onlyWithAlternative && m.matches.length === 0) return false
+        if (filters.source !== 'all') {
+          const hasSource = m.matches.some((match) => match.source === filters.source)
+          if (!hasSource) return false
+        }
+        return true
+      })
+      .map((m) => {
+        if (filters.source === 'all') return m
+        const matches = m.matches.filter((match) => match.source === filters.source)
+        const lossPcts = matches.map((match) => match.lossPct)
+        return {
+          ...m,
+          matches,
+          minLossPct: lossPcts.length > 0 ? Math.min(...lossPcts) : 0,
+          avgLossPct: lossPcts.length > 0 ? lossPcts.reduce((s, v) => s + v, 0) / lossPcts.length : 0,
+          maxLossPct: lossPcts.length > 0 ? Math.max(...lossPcts) : 0,
+        }
+      })
   }, [result, filters])
 
   /** Grouped or ungrouped list of materials for the table */

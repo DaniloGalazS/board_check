@@ -22,15 +22,19 @@ function clpCompact(value: number): string {
 interface Filters {
   articleGroup: string
   articleNo: string
+  fgArticleNo: string
   onlyWithAlternative: boolean
   source: 'all' | 'historial' | 'masterdata'
+  method: 'all' | 'grilla' | 'proporcional'
 }
 
 const DEFAULT_FILTERS: Filters = {
   articleGroup: 'BO-1',
   articleNo: '',
+  fgArticleNo: '',
   onlyWithAlternative: false,
   source: 'all',
+  method: 'all',
 }
 
 export default function Analysis() {
@@ -85,20 +89,18 @@ export default function Analysis() {
 
   const filteredMaterials = useMemo((): AnalyzedMaterial[] => {
     if (!result) return []
+
+    const needsMatchFilter = filters.source !== 'all' || filters.method !== 'all' || filters.fgArticleNo
+
     return result.materials
-      .filter((m) => {
-        if (filters.articleGroup && m.articleGroup !== filters.articleGroup) return false
-        if (filters.articleNo && !m.articleNo.toLowerCase().includes(filters.articleNo.toLowerCase())) return false
-        if (filters.onlyWithAlternative && m.matches.length === 0) return false
-        if (filters.source !== 'all') {
-          const hasSource = m.matches.some((match) => match.source === filters.source)
-          if (!hasSource) return false
-        }
-        return true
-      })
       .map((m) => {
-        if (filters.source === 'all') return m
-        const matches = m.matches.filter((match) => match.source === filters.source)
+        if (!needsMatchFilter) return m
+        const matches = m.matches.filter((match) => {
+          if (filters.source !== 'all' && match.source !== filters.source) return false
+          if (filters.method !== 'all' && match.method !== filters.method) return false
+          if (filters.fgArticleNo && !match.fgArticleNo.toLowerCase().includes(filters.fgArticleNo.toLowerCase())) return false
+          return true
+        })
         const lossPcts = matches.map((match) => match.lossPct)
         return {
           ...m,
@@ -107,6 +109,13 @@ export default function Analysis() {
           avgLossPct: lossPcts.length > 0 ? lossPcts.reduce((s, v) => s + v, 0) / lossPcts.length : 0,
           maxLossPct: lossPcts.length > 0 ? Math.max(...lossPcts) : 0,
         }
+      })
+      .filter((m) => {
+        if (filters.articleGroup && m.articleGroup !== filters.articleGroup) return false
+        if (filters.articleNo && !m.articleNo.toLowerCase().includes(filters.articleNo.toLowerCase())) return false
+        if (filters.onlyWithAlternative && m.matches.length === 0) return false
+        if (needsMatchFilter && m.matches.length === 0) return false
+        return true
       })
   }, [result, filters])
 

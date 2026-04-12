@@ -1,8 +1,10 @@
 interface Filters {
   articleGroup: string
   articleNo: string
+  fgArticleNo: string
   onlyWithAlternative: boolean
   source: 'all' | 'historial' | 'masterdata'
+  method: 'all' | 'grilla' | 'proporcional'
 }
 
 interface Props {
@@ -37,13 +39,22 @@ export default function FilterBar({ filters, articleGroups, onChange }: Props) {
         ))}
       </select>
 
-      {/* Article no. search */}
+      {/* Article no. search (material) */}
       <input
         type="text"
         placeholder="Buscar Article no…"
         value={filters.articleNo}
         onChange={(e) => set({ articleNo: e.target.value })}
         className={`${inputCls} w-48`}
+      />
+
+      {/* FG article no. search */}
+      <input
+        type="text"
+        placeholder="Buscar FG…"
+        value={filters.fgArticleNo}
+        onChange={(e) => set({ fgArticleNo: e.target.value })}
+        className={`${inputCls} w-40`}
       />
 
       {/* Source filter */}
@@ -55,6 +66,17 @@ export default function FilterBar({ filters, articleGroups, onChange }: Props) {
         <option value="all">Todas las fuentes</option>
         <option value="historial">Solo Historial</option>
         <option value="masterdata">Solo Master Data</option>
+      </select>
+
+      {/* Method filter */}
+      <select
+        value={filters.method}
+        onChange={(e) => set({ method: e.target.value as Filters['method'] })}
+        className={inputCls}
+      >
+        <option value="all">Todos los métodos</option>
+        <option value="grilla">Solo Grilla</option>
+        <option value="proporcional">Solo Proporcional</option>
       </select>
 
       {/* Only with alternative toggle */}

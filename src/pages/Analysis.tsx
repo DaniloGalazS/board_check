@@ -5,6 +5,7 @@ import FilterBar from '../components/FilterBar'
 import MaterialTable from '../components/MaterialTable'
 import FGTable, { buildFGRows } from '../components/FGTable'
 import type { MaterialMatchPair } from '../components/FGTable'
+import MultiSelectFilter from '../components/MultiSelectFilter'
 import { loadRows } from '../lib/storage'
 import { runAnalysis } from '../lib/analysisEngine'
 import { getConfig } from './Configuration'
@@ -25,6 +26,7 @@ interface Filters {
   articleGroup: string
   articleNo: string
   fgArticleNo: string
+  descriptions: string[]
   onlyWithAlternative: boolean
   source: 'all' | 'historial' | 'masterdata'
   method: 'all' | 'grilla' | 'proporcional'
@@ -34,6 +36,7 @@ const DEFAULT_FILTERS: Filters = {
   articleGroup: 'BO-1',
   articleNo: '',
   fgArticleNo: '',
+  descriptions: [],
   onlyWithAlternative: false,
   source: 'all',
   method: 'all',
@@ -94,6 +97,11 @@ export default function Analysis() {
     return [...new Set(result.materials.map((m) => m.articleGroup).filter(Boolean))].sort()
   }, [result])
 
+  const descriptionOptions = useMemo(() => {
+    if (!result) return []
+    return [...new Set(result.materials.map((m) => m.description).filter(Boolean))].sort()
+  }, [result])
+
   const filteredMaterials = useMemo((): AnalyzedMaterial[] => {
     if (!result) return []
 
@@ -120,6 +128,7 @@ export default function Analysis() {
       .filter((m) => {
         if (filters.articleGroup && m.articleGroup !== filters.articleGroup) return false
         if (filters.articleNo && !m.articleNo.toLowerCase().includes(filters.articleNo.toLowerCase())) return false
+        if (filters.descriptions.length > 0 && !filters.descriptions.includes(m.description)) return false
         if (filters.onlyWithAlternative && m.matches.length === 0) return false
         if (needsMatchFilter && m.matches.length === 0) return false
         return true
@@ -303,6 +312,14 @@ export default function Analysis() {
             <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
               <div className="flex flex-wrap gap-3 items-center">
                 <FilterBar filters={filters} articleGroups={articleGroups} onChange={setFilters} />
+                {activeTab === 'materials' && (
+                  <MultiSelectFilter
+                    placeholder="Filtrar por descripción…"
+                    options={descriptionOptions}
+                    selected={filters.descriptions}
+                    onChange={(descriptions) => setFilters((f) => ({ ...f, descriptions }))}
+                  />
+                )}
                 {activeTab === 'materials' && (
                   <button
                     onClick={() => setGroupByMaterial((v) => !v)}

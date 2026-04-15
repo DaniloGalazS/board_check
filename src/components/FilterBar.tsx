@@ -2,6 +2,7 @@ interface Filters {
   articleGroup: string
   articleNo: string
   fgArticleNo: string
+  descriptions: string[]
   onlyWithAlternative: boolean
   source: 'all' | 'historial' | 'masterdata'
   method: 'all' | 'grilla' | 'proporcional'
@@ -30,7 +31,7 @@ export default function FilterBar({ filters, articleGroups, onChange }: Props) {
       {/* Article group */}
       <select
         value={filters.articleGroup}
-        onChange={(e) => set({ articleGroup: e.target.value })}
+        onChange={(e) => set({ articleGroup: e.target.value, descriptions: [] })}
         className={inputCls}
       >
         <option value="">Todos los grupos</option>

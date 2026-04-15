@@ -99,8 +99,11 @@ export default function Analysis() {
 
   const descriptionOptions = useMemo(() => {
     if (!result) return []
-    return [...new Set(result.materials.map((m) => m.description).filter(Boolean))].sort()
-  }, [result])
+    const base = filters.articleGroup
+      ? result.materials.filter((m) => m.articleGroup === filters.articleGroup)
+      : result.materials
+    return [...new Set(base.map((m) => m.description).filter(Boolean))].sort()
+  }, [result, filters.articleGroup])
 
   const filteredMaterials = useMemo((): AnalyzedMaterial[] => {
     if (!result) return []

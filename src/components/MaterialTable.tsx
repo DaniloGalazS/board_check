@@ -11,8 +11,101 @@ interface Props {
 
 const COL_COUNT = 13
 
+type SortKey = 'articleNo' | 'stockAge' | 'quantity' | 'totalSheets' | 'valuatedAmount' | 'fgCount' | 'kgUtilizable' | 'minLossPct' | 'avgLossPct'
+type SortDir = 'asc' | 'desc'
+interface SortEntry { key: SortKey; dir: SortDir }
+
+function getValue(mat: AnalyzedMaterial, key: SortKey): number | string {
+  switch (key) {
+    case 'articleNo': return mat.articleNo
+    case 'stockAge': return mat.stockAge
+    case 'quantity': return mat.quantity
+    case 'totalSheets': return mat.totalSheets
+    case 'valuatedAmount': return mat.valuatedAmount
+    case 'fgCount': return new Set(mat.matches.map((m) => m.fgArticleNo)).size
+    case 'kgUtilizable': return mat.kgUtilizable
+    case 'minLossPct': return mat.minLossPct
+    case 'avgLossPct': return mat.avgLossPct
+  }
+}
+
+function sortMaterials(materials: AnalyzedMaterial[], sorts: SortEntry[]): AnalyzedMaterial[] {
+  if (sorts.length === 0) return materials
+  return [...materials].sort((a, b) => {
+    for (const { key, dir } of sorts) {
+      const av = getValue(a, key)
+      const bv = getValue(b, key)
+      let cmp = 0
+      if (typeof av === 'string' && typeof bv === 'string') {
+        cmp = av.localeCompare(bv)
+      } else {
+        cmp = (av as number) - (bv as number)
+      }
+      if (cmp !== 0) return dir === 'asc' ? cmp : -cmp
+    }
+    return 0
+  })
+}
+
+interface SortableThProps {
+  label: string
+  sortKey: SortKey
+  sorts: SortEntry[]
+  align?: 'left' | 'right'
+  onSort: (key: SortKey, addToSort: boolean) => void
+}
+
+function SortableTh({ label, sortKey, sorts, align = 'right', onSort }: SortableThProps) {
+  const idx = sorts.findIndex((s) => s.key === sortKey)
+  const entry = sorts[idx]
+  const rank = sorts.length > 1 && idx !== -1 ? idx + 1 : null
+
+  return (
+    <th
+      className={`px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-700 dark:hover:text-slate-200 transition-colors text-${align}`}
+      onClick={(e) => onSort(sortKey, e.shiftKey)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {align === 'right' && entry && (
+          <span className="text-blue-500 dark:text-blue-400 text-xs">
+            {entry.dir === 'asc' ? '↑' : '↓'}{rank !== null ? rank : ''}
+          </span>
+        )}
+        {label}
+        {align === 'left' && entry && (
+          <span className="text-blue-500 dark:text-blue-400 text-xs">
+            {entry.dir === 'asc' ? '↑' : '↓'}{rank !== null ? rank : ''}
+          </span>
+        )}
+      </span>
+    </th>
+  )
+}
+
 export default function MaterialTable({ materials }: Props) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
+  const [sorts, setSorts] = useState<SortEntry[]>([])
+
+  function handleSort(key: SortKey, addToSort: boolean) {
+    setSorts((prev) => {
+      const existing = prev.find((s) => s.key === key)
+      if (addToSort) {
+        // Shift+click: add/toggle within multi-sort
+        if (existing) {
+          if (existing.dir === 'asc') return prev.map((s) => s.key === key ? { ...s, dir: 'desc' } : s)
+          return prev.filter((s) => s.key !== key)
+        }
+        return [...prev, { key, dir: 'asc' }]
+      } else {
+        // Single click: replace sort
+        if (existing && prev.length === 1) {
+          if (existing.dir === 'asc') return [{ key, dir: 'desc' }]
+          return []
+        }
+        return [{ key, dir: 'asc' }]
+      }
+    })
+  }
 
   function uniqueArticleCount(matches: AnalyzedMaterial['matches']): number {
     return new Set(matches.map((m) => m.fgArticleNo)).size
@@ -27,6 +120,8 @@ export default function MaterialTable({ materials }: Props) {
     })
   }
 
+  const sorted = sortMaterials(materials, sorts)
+
   if (materials.length === 0) {
     return (
       <div className="text-center py-16 text-slate-400 dark:text-slate-500">
@@ -35,29 +130,31 @@ export default function MaterialTable({ materials }: Props) {
     )
   }
 
+  const thProps = { sorts, onSort: handleSort }
+
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
       <table className="w-full text-sm">
         <thead className="bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
           <tr className="text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider">
             <th className="text-left px-4 py-3 font-medium w-8"></th>
-            <th className="text-left px-4 py-3 font-medium">Article no.</th>
+            <SortableTh label="Article no." sortKey="articleNo" align="left" {...thProps} />
             <th className="text-left px-4 py-3 font-medium">Variante</th>
             <th className="text-left px-4 py-3 font-medium">Descripción</th>
-            <th className="text-right px-4 py-3 font-medium">Días stock</th>
-            <th className="text-right px-4 py-3 font-medium">Cantidad</th>
+            <SortableTh label="Días stock" sortKey="stockAge" {...thProps} />
+            <SortableTh label="Cantidad" sortKey="quantity" {...thProps} />
             <th className="text-left px-4 py-3 font-medium">Unidad</th>
-            <th className="text-right px-4 py-3 font-medium">Pliegos</th>
+            <SortableTh label="Pliegos" sortKey="totalSheets" {...thProps} />
             <th className="text-left px-4 py-3 font-medium">SHT</th>
-            <th className="text-right px-4 py-3 font-medium">Valor stock</th>
-            <th className="text-right px-4 py-3 font-medium">N° FG</th>
-            <th className="text-right px-4 py-3 font-medium">Kilos util.</th>
+            <SortableTh label="Valor stock" sortKey="valuatedAmount" {...thProps} />
+            <SortableTh label="N° FG" sortKey="fgCount" {...thProps} />
+            <SortableTh label="Kilos util." sortKey="kgUtilizable" {...thProps} />
             <th className="text-right px-4 py-3 font-medium">Pérdida (min→max)</th>
-            <th className="text-right px-4 py-3 font-medium">Prom. pérd.</th>
+            <SortableTh label="Prom. pérd." sortKey="avgLossPct" {...thProps} />
           </tr>
         </thead>
         <tbody>
-          {materials.map((mat, idx) => {
+          {sorted.map((mat, idx) => {
             const key = `${mat.articleNo}|${mat.variant}|${mat.batchNo}|${idx}`
             const isExpanded = expandedKeys.has(key)
             const hasMatches = mat.matches.length > 0
@@ -155,6 +252,14 @@ export default function MaterialTable({ materials }: Props) {
       <div className="px-4 py-3 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-400 dark:text-slate-500">
         {materials.length} material{materials.length !== 1 ? 'es' : ''} •{' '}
         {clpFmt.format(materials.reduce((s, m) => s + m.valuatedAmount, 0))} total
+        {sorts.length > 0 && (
+          <button
+            onClick={() => setSorts([])}
+            className="ml-3 text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 transition-colors"
+          >
+            Limpiar orden
+          </button>
+        )}
       </div>
     </div>
   )
